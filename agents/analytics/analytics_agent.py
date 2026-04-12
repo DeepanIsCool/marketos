@@ -195,6 +195,8 @@ def analytics_agent_node(state: dict) -> dict:
     if ch_client:
         metrics = _query_campaign_metrics(ch_client, campaign_id)
         agent_log("ANALYTICS", "Real ClickHouse data retrieved")
+        if metrics and all(value == 0 for value in metrics.values()) and send_data.get("message_id"):
+            agent_log("ANALYTICS", "ClickHouse sink may be lagging — metrics may be incomplete")
     else:
         # Simulate realistic metrics based on copy scores for demo
         copy_data = state.get("copy_output") or {}

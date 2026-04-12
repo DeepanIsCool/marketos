@@ -27,8 +27,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-import psycopg2
-import psycopg2.extras
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from agents.llm.llm_provider import get_llm
@@ -36,12 +34,27 @@ from utils.kafka_bus import publish_event, Topics
 from utils.logger import agent_log, step_banner, kv, section, divider, check_line
 from utils.json_utils import extract_json, safe_float
 
+try:
+    import psycopg2
+    import psycopg2.extras
+    PG_AVAILABLE = True
+except ImportError:
+    PG_AVAILABLE = False
+
 PG_DSN = os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos")
 
 # ── Alert Rule Engine ─────────────────────────────────────────────────────────
 
 def _load_alert_rules() -> list[dict]:
     """Load active alert rules from PostgreSQL (seeded by init_postgres.sql)."""
+    if not PG_AVAILABLE:
+        return [
+            {"rule_id": "SPAM_RATE_HIGH",   "metric": "spam_rate",      "condition": "gt", "threshold": 0.005, "severity": "CRITICAL", "tier": 3},
+            {"rule_id": "BOUNCE_RATE_HIGH",  "metric": "bounce_rate",    "condition": "gt", "threshold": 0.020, "severity": "WARNING",  "tier": 2},
+            {"rule_id": "OPEN_RATE_LOW",     "metric": "open_rate",      "condition": "lt", "threshold": 0.100, "severity": "INFO",     "tier": 1},
+            {"rule_id": "DELIVERY_RATE_LOW", "metric": "delivery_rate",  "condition": "lt", "threshold": 0.950, "severity": "WARNING",  "tier": 2},
+            {"rule_id": "BUDGET_OVERPACE",   "metric": "spend_vs_budget_pct", "condition": "gt", "threshold": 1.10, "severity": "CRITICAL", "tier": 3},
+        ]
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -258,26 +271,27 @@ def monitor_agent_node(state: dict) -> dict:
 
     # ── Store incident in PostgreSQL ──────────────────────────────────────
     incident_id = f"INC-{str(uuid.uuid4())[:8].upper()}"
-    try:
-        conn = psycopg2.connect(PG_DSN)
-        with conn.cursor() as cur:
-            for rule in triggered:
-                cur.execute("""
-                    INSERT INTO monitor_incidents
-                        (incident_id, campaign_id, rule_id, severity, metric,
-                         observed_value, threshold, status, remediation)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    f"{incident_id}-{rule['rule_id']}", campaign_id,
-                    rule["rule_id"], rule["severity"], rule["metric"],
-                    rule["observed_value"], rule["threshold"],
-                    "auto_remediated" if any(r["rule_id"] == rule["rule_id"] for r in remediations) else "open",
-                    analysis.get("executive_summary"),
-                ))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        agent_log("MONITOR", f"Incident DB write failed: {e}")
+    if PG_AVAILABLE:
+        try:
+            conn = psycopg2.connect(PG_DSN)
+            with conn.cursor() as cur:
+                for rule in triggered:
+                    cur.execute("""
+                        INSERT INTO monitor_incidents
+                            (incident_id, campaign_id, rule_id, severity, metric,
+                             observed_value, threshold, status, remediation)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        f"{incident_id}-{rule['rule_id']}", campaign_id,
+                        rule["rule_id"], rule["severity"], rule["metric"],
+                        rule["observed_value"], rule["threshold"],
+                        "auto_remediated" if any(r["rule_id"] == rule["rule_id"] for r in remediations) else "open",
+                        analysis.get("executive_summary"),
+                    ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            agent_log("MONITOR", f"Incident DB write failed: {e}")
 
     # ── Terminal output ───────────────────────────────────────────────────
     health = analysis.get("system_health", "unknown")

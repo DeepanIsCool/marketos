@@ -14,6 +14,7 @@ Production responsibilities (full system):
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from datetime import datetime, timezone
@@ -21,12 +22,22 @@ from datetime import datetime, timezone
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from agents.llm.llm_provider import get_llm
+from agents.personalization.personalization_agent import personalize_for_contact
 from schemas.campaign import CampaignPlan, CopyOutput, CopyVariant, SendResult
 from utils.logger import agent_log, step_banner, kv, section, divider, success_banner
 from utils.json_utils import extract_json
 from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory
 from utils.sendgrid_mailer import send_email
+
+try:
+    import psycopg2
+    PG_AVAILABLE = True
+except ImportError:
+    PG_AVAILABLE = False
+
+PG_DSN = os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos")
+WORKSPACE = os.getenv("DEFAULT_WORKSPACE_ID", "default")
 
 
 # ── System Prompt ────────────────────────────────────────────────────────────
@@ -64,6 +75,58 @@ REQUIRED JSON SCHEMA:
 # Delivery function replaced by utils.sendgrid_mailer.send_email
 
 
+async def _personalize_batch(contacts: list[dict], selected: CopyVariant, campaign_plan: dict) -> list[dict]:
+    semaphore = asyncio.Semaphore(10)
+
+    async def _personalize(contact: dict) -> dict:
+        async with semaphore:
+            return await asyncio.to_thread(
+                personalize_for_contact,
+                contact_id=contact.get("contact_id") or contact.get("email") or "default",
+                variant=selected.model_dump(),
+                campaign_plan=campaign_plan,
+                contact_data=contact or None,
+            )
+
+    return await asyncio.gather(*[_personalize(contact) for contact in contacts])
+
+
+def _seed_ab_variant_stats(
+    campaign_id: str,
+    workspace_id: str,
+    variants: list[CopyVariant],
+    total_sends: int,
+) -> None:
+    if not PG_AVAILABLE or not variants:
+        return
+
+    split = max(total_sends, 0)
+    base_sends, remainder = divmod(split, len(variants))
+    rows = []
+    for index, variant in enumerate(variants):
+        sends = base_sends + (1 if index < remainder else 0)
+        rows.append((campaign_id, workspace_id, variant.variant_id, sends))
+
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO ab_variant_stats
+                    (campaign_id, workspace_id, variant_id, sends, opens, clicks, conversions)
+                VALUES (%s, %s, %s, %s, 0, 0, 0)
+                ON CONFLICT (campaign_id, variant_id) DO UPDATE
+                SET sends = ab_variant_stats.sends + EXCLUDED.sends,
+                    updated_at = NOW()
+                """,
+                rows,
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        agent_log("EMAIL", f"A/B stats seed failed: {exc}")
+
+
 # ── Agent Node ───────────────────────────────────────────────────────────────
 
 def email_agent_node(state: dict) -> dict:
@@ -87,6 +150,8 @@ def email_agent_node(state: dict) -> dict:
         (v for v in copy_out.variants if v.variant_id == selected_id),
         copy_out.variants[0],
     )
+    contact_list = state.get("contact_list") or []
+    bulk_mode = len(contact_list) > 1
 
     agent_log("EMAIL", f"Campaign   : {plan.campaign_name}")
     agent_log("EMAIL", f"Variant    : {selected.variant_id}  —  \"{selected.subject_line}\"")
@@ -149,6 +214,35 @@ def email_agent_node(state: dict) -> dict:
     # ── Real email send ──────────────────────────────────────────────────
     real_result = {"sent": False, "error": "no recipient configured"}
     recipient   = state.get("recipient_email")
+    workspace_id = state.get("workspace_id") or WORKSPACE
+    contact_id = state.get("contact_id") or recipient or "default"
+    personalized = {
+        "subject_line": selected.subject_line,
+        "body_html": selected.body_html,
+        "personalization_signals": ["not_applied"],
+    }
+
+    if bulk_mode:
+        try:
+            personalized_batch = asyncio.run(_personalize_batch(contact_list, selected, plan_data))
+            personalized = next(
+                (
+                    item for item, contact in zip(personalized_batch, contact_list)
+                    if (contact.get("contact_id") or contact.get("email")) == contact_id
+                ),
+                personalized_batch[0],
+            )
+            kv("Personalization", f"batch mode ({len(personalized_batch)} contacts): {', '.join(personalized.get('personalization_signals', [])) or 'none'}")
+        except Exception as exc:
+            agent_log("EMAIL", f"Batch personalization failed: {exc}")
+    else:
+        personalized = personalize_for_contact(
+            contact_id=contact_id,
+            variant=selected.model_dump(),
+            campaign_plan=plan_data,
+            contact_data=None,
+        )
+        kv("Personalization", ", ".join(personalized.get("personalization_signals", [])) or "none")
 
     if recipient:
         divider()
@@ -157,8 +251,8 @@ def email_agent_node(state: dict) -> dict:
 
         real_result = send_email(
             to_email           = recipient,
-            subject            = selected.subject_line,
-            html_content       = selected.body_html,
+            subject            = personalized.get("subject_line", selected.subject_line),
+            html_content       = personalized.get("body_html", selected.body_html),
             sender_name        = state.get("sender_name", "MarketOS"),
             campaign_id        = plan.campaign_id,
             hero_image_base64  = copy_out.hero_image_base64,
@@ -177,19 +271,32 @@ def email_agent_node(state: dict) -> dict:
     result_dict = send_result.model_dump()
     result_dict["real_email_sent"]   = real_result.get("sent", False)
     result_dict["real_email_status"] = "sent" if real_result.get("sent") else real_result.get("error", "not_attempted")
+    result_dict["simulated_recipients"] = max(int(data.get("simulated_recipients", 25000) or 25000), 0)
+    result_dict["personalization_signals"] = personalized.get("personalization_signals", [])
+
+    _seed_ab_variant_stats(
+        campaign_id=plan.campaign_id,
+        workspace_id=workspace_id,
+        variants=copy_out.variants,
+        total_sends=result_dict["simulated_recipients"],
+    )
 
     # ── Publish to Kafka ────────────────────────────────────────────────
     publish_event(
         topic=Topics.CONTACT_EVENTS,
         source_agent="email_agent",
         payload={
-            "event":       "email_sent",
-            "campaign_id": plan.campaign_id,
-            "message_id":  message_id,
-            "recipient":   recipient or "none",
-            "real_sent":   real_result.get("sent", False),
-            "subject":     selected.subject_line,
-            "timestamp":   datetime.now(timezone.utc).isoformat(),
+            "event":        "email_sent",
+            "event_type":   "email_sent",
+            "campaign_id":  plan.campaign_id,
+            "workspace_id": workspace_id,
+            "contact_id":   contact_id,
+            "message_id":   message_id,
+            "recipient":    recipient or "none",
+            "real_sent":    real_result.get("sent", False),
+            "subject":      selected.subject_line,
+            "provider":     real_result.get("provider", send_result.provider),
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
         },
     )
 

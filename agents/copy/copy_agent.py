@@ -15,6 +15,7 @@ Demo mode: in-memory generation with scoring via LLM.
 import json
 import os
 from datetime import datetime, timezone
+
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from agents.llm.llm_provider import get_llm
@@ -30,6 +31,14 @@ try:
 except Exception:
     REDIS_AVAILABLE = False
     _redis = None
+
+try:
+    import psycopg2
+    PG_AVAILABLE = True
+except ImportError:
+    PG_AVAILABLE = False
+
+PG_DSN = os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos")
 
 WORKSPACE = os.getenv("WORKSPACE_ID", "default")
 
@@ -125,6 +134,84 @@ Styling rules:
 """
 
 
+def _ensure_campaign_exists(plan: CampaignPlan) -> None:
+    if not PG_AVAILABLE:
+        return
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO campaigns (
+                    campaign_id, workspace_id, campaign_name, goal, target_audience,
+                    channels, budget, timeline, tone, key_messages, status
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'running')
+                ON CONFLICT (campaign_id) DO NOTHING
+                """,
+                (
+                    plan.campaign_id,
+                    WORKSPACE,
+                    plan.campaign_name,
+                    plan.goal,
+                    plan.target_audience,
+                    plan.channels,
+                    plan.budget,
+                    plan.timeline,
+                    plan.tone,
+                    plan.key_messages,
+                ),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        agent_log("COPY", f"Campaign upsert failed: {exc}")
+
+
+def _save_variants_to_db(campaign_id: str, variants: list[CopyVariant], selected_variant_id: str) -> None:
+    if not PG_AVAILABLE or not variants:
+        return
+
+    rows = [
+        (
+            campaign_id,
+            variant.variant_id,
+            variant.subject_line,
+            variant.preview_text,
+            variant.body_html,
+            variant.body_text,
+            variant.cta_text,
+            variant.readability_score,
+            variant.tone_alignment_score,
+            variant.spam_risk_score,
+            variant.estimated_open_rate,
+            variant.estimated_ctr,
+            variant.variant_id == selected_variant_id,
+        )
+        for variant in variants
+    ]
+
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO copy_variants (
+                    campaign_id, variant_id, subject_line, preview_text, body_html, body_text,
+                    cta_text, readability_score, tone_alignment_score, spam_risk_score,
+                    estimated_open_rate, estimated_ctr, is_winner
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (campaign_id, variant_id) DO NOTHING
+                """,
+                rows,
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        agent_log("COPY", f"Variant DB write failed: {exc}")
+
+
 # ── Agent Node ───────────────────────────────────────────────────────────────
 
 def copy_agent_node(state: dict) -> dict:
@@ -199,6 +286,8 @@ KEY MESSAGES TO INCORPORATE:
         (v for v in variants if v.variant_id == copy_output.selected_variant_id),
         variants[0]
     )
+    _ensure_campaign_exists(plan)
+    _save_variants_to_db(plan.campaign_id, variants, copy_output.selected_variant_id)
 
     # ── Terminal Output ──────────────────────────────────────────────────────
     agent_log("COPY", f"✓ Generated {len(variants)} variant(s)")

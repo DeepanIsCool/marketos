@@ -26,6 +26,8 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from reportlab.lib.pagesizes import A4
@@ -309,6 +311,7 @@ class ReportingAgent(AgentBase):
         from schemas.campaign import CampaignPlan
         plan        = CampaignPlan(**plan_data)
         campaign_id = plan.campaign_id
+        recipient   = state.get("recipient_email")
         agent_log("REPORTING", f"Campaign: {campaign_id}  |  {plan.campaign_name}")
 
         # ── Aggregate metrics ─────────────────────────────────────────────
@@ -373,10 +376,20 @@ class ReportingAgent(AgentBase):
         PDFReportSkill.generate(pdf_data, pdf_path)
         agent_log("REPORTING", f"✓ Campaign Report PDF generated: {pdf_path}")
 
-        # ── Branded HTML fallback for email ───────────────────────────────
-        period    = f"Campaign run — {datetime.now(timezone.utc).strftime('%d %b %Y')}"
-        html_path = f"/tmp/report_{report_id}.html"
-        # (Keeping the original HTML generator as a helper if needed or just skipping)
+        summary_items = insights.get("insights") or []
+        summary_html = "".join(f"<li>{item}</li>" for item in summary_items[:3])
+        html = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #1f2937;">
+            <h2>Campaign Report: {plan.campaign_name}</h2>
+            <p><strong>Executive Summary:</strong> {insights.get("executive_summary", "Report generated successfully.")}</p>
+            <p><strong>Grade:</strong> {insights.get("campaign_grade", "N/A")}</p>
+            <p><strong>Top Insight:</strong> {insights.get("top_insight", "No top insight available.")}</p>
+            <ul>{summary_html or "<li>No additional insights available.</li>"}</ul>
+          </body>
+        </html>
+        """.strip()
+
         emailed = False
         if recipient:
             send_result = send_email(
@@ -403,7 +416,7 @@ class ReportingAgent(AgentBase):
         for rec in insights.get("recommendations", []):
             print(f"  →  {rec}")
 
-        kv("\n  Report path",  report_path)
+        kv("\n  Report path",  pdf_path)
         kv("  Emailed",       "✅ Sent" if emailed else "Not sent (no recipient)")
 
         divider()

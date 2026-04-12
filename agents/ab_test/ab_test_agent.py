@@ -107,12 +107,8 @@ class BayesianStatsSkill:
 
     @staticmethod
     def _beta_sample(alpha: float, beta: float) -> float:
-        """Sample from Beta(alpha, beta) using Johnk's method — no numpy needed."""
-        while True:
-            u = random.random() ** (1.0 / alpha)
-            v = random.random() ** (1.0 / beta)
-            if u + v <= 1.0:
-                return u / (u + v)
+        """Sample from Beta(alpha, beta) via the stdlib C implementation."""
+        return random.betavariate(alpha, beta)
 
 
 # ── Sub-skill: Sample Size Calculator ────────────────────────────────────────

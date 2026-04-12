@@ -14,6 +14,7 @@ Production: NestJS/GraphQL (PRD §3.1) — FastAPI is the Python prototype.
 from __future__ import annotations
 
 import json
+import importlib
 import os
 import time
 import uuid
@@ -72,6 +73,26 @@ class HealthResponse(BaseModel):
     postgres:  str
     redis:     str
     timestamp: str
+
+
+AGENT_MODULES = [
+    "agents.supervisor.supervisor_agent",
+    "agents.competitor.competitor_agent",
+    "agents.copy.copy_agent",
+    "agents.creative.image_engine",
+    "agents.compliance.compliance_agent",
+    "agents.finance.finance_agent",
+    "agents.email.email_agent",
+    "agents.sms.sms_agent",
+    "agents.social.social_media_agent",
+    "agents.analytics.analytics_agent",
+    "agents.monitor.monitor_agent",
+    "agents.ab_test.ab_test_agent",
+    "agents.lead_scoring.lead_scoring_agent",
+    "agents.seo.seo_agent",
+    "agents.reporting.reporting_agent",
+    "agents.onboarding.onboarding_agent",
+]
 
 
 # ── Async Campaign Endpoint (PRD-compliant) ──────────────────────────────────
@@ -232,6 +253,18 @@ async def health_check():
         redis=redis_status,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+
+
+@app.get("/health/agents")
+async def agent_health():
+    results = {}
+    for module_name in AGENT_MODULES:
+        try:
+            importlib.import_module(module_name)
+            results[module_name] = "ok"
+        except Exception as exc:
+            results[module_name] = str(exc)
+    return results
 
 
 # ── Event Log (for demo verification) ───────────────────────────────────────

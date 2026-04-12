@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS copy_variants (
     is_winner             BOOLEAN DEFAULT FALSE,
     created_at            TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_copy_variants_campaign_variant
+    ON copy_variants(campaign_id, variant_id);
+ALTER TABLE copy_variants ADD COLUMN IF NOT EXISTS suppressed BOOLEAN DEFAULT FALSE;
 
 -- ── Compliance Audit Log (append-only) ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS compliance_audit (
@@ -127,7 +130,7 @@ CREATE TABLE IF NOT EXISTS agent_episodic_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_episodic_workspace ON agent_episodic_memory(workspace_id, agent_name);
 CREATE INDEX IF NOT EXISTS idx_episodic_embedding ON agent_episodic_memory
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- ── Agent Memory: Semantic (brand knowledge) ──────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_semantic_memory (
@@ -140,13 +143,22 @@ CREATE TABLE IF NOT EXISTS agent_semantic_memory (
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 -- UNIQUE constraint for upsert support (ON CONFLICT)
-ALTER TABLE agent_semantic_memory
-    ADD CONSTRAINT uq_semantic_workspace_category_key
-    UNIQUE (workspace_id, category, key);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'uq_semantic_workspace_category_key'
+    ) THEN
+        ALTER TABLE agent_semantic_memory
+            ADD CONSTRAINT uq_semantic_workspace_category_key
+            UNIQUE (workspace_id, category, key);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_semantic_workspace ON agent_semantic_memory(workspace_id, category);
 CREATE INDEX IF NOT EXISTS idx_semantic_embedding ON agent_semantic_memory
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- ── Add result_data to campaigns (for worker status updates) ───────────────
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS result_data JSONB;
@@ -175,6 +187,33 @@ CREATE TABLE IF NOT EXISTS roi_attributions (
     attributed_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── A/B Variant Stats (A/B Test Agent) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS ab_variant_stats (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    campaign_id     VARCHAR(16) NOT NULL,
+    workspace_id    VARCHAR(64) NOT NULL DEFAULT 'default',
+    variant_id      VARCHAR(16) NOT NULL,
+    sends           INTEGER DEFAULT 0,
+    opens           INTEGER DEFAULT 0,
+    clicks          INTEGER DEFAULT 0,
+    conversions     INTEGER DEFAULT 0,
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(campaign_id, variant_id)
+);
+
+-- ── A/B Test Results (A/B Test Agent) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ab_test_results (
+    test_id         VARCHAR(32) PRIMARY KEY,
+    campaign_id     VARCHAR(16) NOT NULL,
+    workspace_id    VARCHAR(64) NOT NULL DEFAULT 'default',
+    winner_id       VARCHAR(16),
+    decision        VARCHAR(32),
+    confidence      NUMERIC(5,4),
+    key_learning    TEXT,
+    copy_insight    TEXT,
+    concluded_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ── SMS Suppressions (SMS Agent opt-out registry) ──────────────────────────
 CREATE TABLE IF NOT EXISTS sms_suppressions (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -194,6 +233,17 @@ CREATE TABLE IF NOT EXISTS contacts (
     phone           VARCHAR(20),
     first_name      VARCHAR(128),
     last_name       VARCHAR(128),
+    city            TEXT,
+    country         CHAR(2),
+    language        VARCHAR(8) DEFAULT 'en',
+    segment         VARCHAR(64),
+    last_purchase_days_ago INTEGER,
+    total_orders    INTEGER DEFAULT 0,
+    avg_order_value NUMERIC(10,2),
+    email_opens_30d INTEGER DEFAULT 0,
+    email_clicks_30d INTEGER DEFAULT 0,
+    preferred_time  VARCHAR(16),
+    tags            TEXT[],
     consent_type    VARCHAR(32) DEFAULT 'implied',   -- implied | express_written
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );

@@ -86,7 +86,21 @@ CREATE TABLE IF NOT EXISTS contacts (
     updated_at              TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (contact_id, workspace_id)
 );
+
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS country CHAR(2);
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS language VARCHAR(8) DEFAULT 'en';
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS segment VARCHAR(64);
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_purchase_days_ago INTEGER;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS total_orders INTEGER DEFAULT 0;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS avg_order_value NUMERIC(10,2);
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_opens_30d INTEGER DEFAULT 0;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_clicks_30d INTEGER DEFAULT 0;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS preferred_time VARCHAR(16);
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags TEXT[];
 CREATE INDEX IF NOT EXISTS idx_contacts_segment ON contacts(workspace_id, segment);
 
 -- ── suppressed column on copy_variants (A/B Test loser suppression) ───────
 ALTER TABLE copy_variants ADD COLUMN IF NOT EXISTS suppressed BOOLEAN DEFAULT FALSE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_copy_variants_campaign_variant
+    ON copy_variants(campaign_id, variant_id);

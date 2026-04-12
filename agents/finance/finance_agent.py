@@ -348,6 +348,6 @@ ESTIMATED ROAS: {roi_calc.get('roas', 0):.2f}x
 def finance_router(state: dict) -> str:
     result = state.get("finance_result", {})
     if result.get("approved", True):
-        return "personalization_agent"
+        return "email_agent"
     agent_log("FINANCE", "Pipeline halted — budget gate blocked send.")
     return "end"

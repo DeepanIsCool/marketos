@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import TypedDict, Annotated, List, Optional
 import operator
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 
 # ── Import all agent nodes ─────────────────────────────────────────────────────
 from agents.supervisor.supervisor_agent             import supervisor_node
@@ -102,6 +102,35 @@ def pipeline_router(state: dict) -> str:
     return "supervisor"
 
 
+def _parallel_branch_delta(state: dict, result: dict, result_key: str) -> dict:
+    state_trace = state.get("trace", [])
+    state_errors = state.get("errors", [])
+    next_trace = result.get("trace", [])
+    next_errors = result.get("errors", [])
+    delta = {
+        result_key: result.get(result_key),
+        "trace": next_trace[len(state_trace):],
+        "errors": next_errors[len(state_errors):],
+    }
+    return {key: value for key, value in delta.items() if value not in (None, [], {})}
+
+
+def competitor_parallel_node(state: dict) -> dict:
+    return _parallel_branch_delta(
+        state,
+        competitor_agent_node(state),
+        "competitor_result",
+    )
+
+
+def seo_parallel_node(state: dict) -> dict:
+    return _parallel_branch_delta(
+        state,
+        seo_agent_node(state),
+        "seo_result",
+    )
+
+
 # ── Campaign Graph ─────────────────────────────────────────────────────────────
 
 def build_campaign_graph() -> StateGraph:
@@ -120,20 +149,20 @@ def build_campaign_graph() -> StateGraph:
     g.add_node("monitor_agent",       monitor_agent_node)
     g.add_node("ab_test_agent",       ab_test_agent_node)
     g.add_node("lead_scoring_agent",  lead_scoring_agent_node)
-    g.add_node("competitor_agent",    competitor_agent_node)
-    g.add_node("seo_agent",           seo_agent_node)
+    g.add_node("competitor_agent",    competitor_parallel_node)
+    g.add_node("seo_agent",           seo_parallel_node)
     g.add_node("reporting_agent",     reporting_agent_node)
     g.add_node("onboarding_agent",    onboarding_agent_node)
 
     # Entry: dual pipeline
-    g.set_entry_point("entry_router")
-    g.add_node("entry_router", lambda state: state)
-    g.add_conditional_edges("entry_router", pipeline_router,
+    g.add_conditional_edges(START, pipeline_router,
         {"supervisor": "supervisor", "onboarding_agent": "onboarding_agent"})
 
     # ── Pipeline A: Campaign Execution ────────────────────────────────────
     g.add_edge("supervisor",         "competitor_agent")
+    g.add_edge("supervisor",         "seo_agent")
     g.add_edge("competitor_agent",   "copy_agent")
+    g.add_edge("seo_agent",          "copy_agent")
     g.add_edge("copy_agent",         "image_agent")
     g.add_edge("image_agent",        "compliance_agent")
 
@@ -141,7 +170,7 @@ def build_campaign_graph() -> StateGraph:
         {"email_agent": "finance_agent", "end": END})
 
     g.add_conditional_edges("finance_agent", finance_router,
-        {"personalization_agent": "email_agent", "end": END})
+        {"email_agent": "email_agent", "end": END})
 
     g.add_edge("email_agent",        "sms_agent")
     g.add_edge("sms_agent",          "social_media_agent")
@@ -149,8 +178,7 @@ def build_campaign_graph() -> StateGraph:
     g.add_edge("analytics_agent",    "monitor_agent")
     g.add_edge("monitor_agent",      "ab_test_agent")
     g.add_edge("ab_test_agent",      "lead_scoring_agent")
-    g.add_edge("lead_scoring_agent", "seo_agent")
-    g.add_edge("seo_agent",          "reporting_agent")
+    g.add_edge("lead_scoring_agent", "reporting_agent")
     g.add_edge("reporting_agent",    END)
 
     # ── Pipeline B: Onboarding ─────────────────────────────────────────────
