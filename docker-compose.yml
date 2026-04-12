@@ -1,0 +1,121 @@
+# MarketOS — Local Development Infrastructure
+# PRD-compliant local equivalents for all production services
+#
+# Services:
+#   redpanda   → Apache Kafka (MSK Serverless equivalent, Kafka-compatible API)
+#   postgres   → PostgreSQL 16 + pgvector extension
+#   redis      → Redis 7 (cache + working memory + distributed locks)
+#   clickhouse → ClickHouse (analytics OLAP database)
+#
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose down           # stop all
+#   docker compose down -v        # stop + wipe all data
+#   docker compose logs -f        # tail logs
+#
+# First-time setup after `docker compose up -d`:
+#   docker compose exec postgres psql -U marketos -c "CREATE EXTENSION IF NOT EXISTS vector;"
+#   python infra/init_db.py       # create all tables
+
+version: "3.9"
+
+services:
+
+  # ── Kafka (Redpanda — fully Kafka-compatible, zero ZooKeeper) ──────────────
+  redpanda:
+    image: redpandadata/redpanda:v24.1.1
+    container_name: marketos_redpanda
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --advertise-pandaproxy-addr=localhost:8082
+    ports:
+      - "9092:9092" # Kafka API
+      - "8082:8082" # Pandaproxy (REST)
+      - "9644:9644" # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: [ "CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Redpanda Console — Kafka topic browser UI at http://localhost:8080
+  redpanda_console:
+    image: redpandadata/console:v2.5.2
+    container_name: marketos_console
+    depends_on: [ redpanda ]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8080:8080"
+
+  # ── PostgreSQL 16 + pgvector ───────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: marketos_postgres
+    environment:
+      POSTGRES_DB: marketos
+      POSTGRES_USER: marketos
+      POSTGRES_PASSWORD: marketos_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U marketos -d marketos" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis 7 ───────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: marketos_redis
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── ClickHouse ────────────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: marketos_clickhouse
+    environment:
+      CLICKHOUSE_DB: marketos_analytics
+      CLICKHOUSE_USER: marketos
+      CLICKHOUSE_PASSWORD: marketos_dev
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123" # HTTP interface
+      - "9000:9000" # Native protocol
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./infra/init_clickhouse.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "clickhouse-client --query 'SELECT 1'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  redpanda_data:
+  postgres_data:
+  redis_data:
+  clickhouse_data:
