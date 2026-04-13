@@ -222,8 +222,8 @@ class SMSProviderChain:
     """
 
     PROVIDERS = [
-        ("msg91",  MSG91Skill.send),
         ("twilio", TwilioSkill.send),
+        ("msg91",  MSG91Skill.send),
     ]
 
     @classmethod

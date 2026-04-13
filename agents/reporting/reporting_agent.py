@@ -307,6 +307,7 @@ class ReportingAgent(AgentBase):
         analytics  = state.get("analytics_result") or {}
         ab_data    = state.get("ab_test_result") or {}
         lead_data  = state.get("lead_scoring_result") or {}
+        send_data  = state.get("send_result") or {}
 
         from schemas.campaign import CampaignPlan
         plan        = CampaignPlan(**plan_data)
@@ -368,7 +369,7 @@ class ReportingAgent(AgentBase):
             "metrics":      metrics,
             "copy":         selected_variant,
             "image":        copy_data.get("hero_image_url"),
-            "status":       state.get("send_result", {}).get("status", "COMPLETED")
+            "status":       send_data.get("status", "COMPLETED")
         }
 
         # ── Generate PDF ──────────────────────────────────────────────────
@@ -376,25 +377,103 @@ class ReportingAgent(AgentBase):
         PDFReportSkill.generate(pdf_data, pdf_path)
         agent_log("REPORTING", f"✓ Campaign Report PDF generated: {pdf_path}")
 
-        summary_items = insights.get("insights") or []
-        summary_html = "".join(f"<li>{item}</li>" for item in summary_items[:3])
+        # ── Branded Premium HTML Template ─────────────────────────────────
+        grade = insights.get('campaign_grade', '—')
+        grade_color = "#3B82F6" # Default Blue
+        if "A" in grade: grade_color = "#22C55E"
+        elif "B" in grade: grade_color = "#3B82F6"
+        elif "C" in grade: grade_color = "#F59E0B"
+        elif "D" in grade: grade_color = "#EF4444"
+        elif "F" in grade: grade_color = "#7F1D1D"
+
+        summary_html = "".join(f"<li style='margin-bottom:8px;'>{item}</li>" for item in insights.get("insights", [])[:3])
+        
         html = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; color: #1f2937;">
-            <h2>Campaign Report: {plan.campaign_name}</h2>
-            <p><strong>Executive Summary:</strong> {insights.get("executive_summary", "Report generated successfully.")}</p>
-            <p><strong>Grade:</strong> {insights.get("campaign_grade", "N/A")}</p>
-            <p><strong>Top Insight:</strong> {insights.get("top_insight", "No top insight available.")}</p>
-            <ul>{summary_html or "<li>No additional insights available.</li>"}</ul>
-          </body>
-        </html>
-        """.strip()
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#F0F2F5; font-family:'Inter', Helvetica, Arial, sans-serif; color:#1A1A2E;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#F0F2F5">
+        <tr>
+            <td align="center" style="padding: 20px 0;">
+                <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td bgcolor="#1A1A2E" style="padding: 40px 32px; text-align: center;">
+                            <h1 style="color:#ffffff; margin:0; font-size:24px; letter-spacing:1px; text-transform:uppercase;">MarketOS Intelligence</h1>
+                            <p style="color:#A0AEC0; margin:10px 0 0 0; font-size:14px;">CAMPAIGN EXECUTION REPORT</p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 32px;">
+                            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td>
+                                        <h2 style="margin:0 0 16px 0; font-size:20px;">{plan.campaign_name}</h2>
+                                        <div style="background-color:#F7FAFC; border-left:4px solid {grade_color}; padding:20px; border-radius:8px; margin-bottom:24px;">
+                                            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                                                <tr>
+                                                    <td style="vertical-align: top;">
+                                                        <p style="margin:0; font-size:12px; color:#718096; text-transform:uppercase; font-weight:bold;">Executive Grade</p>
+                                                        <h1 style="margin:5px 0 0 0; color:{grade_color}; font-size:48px;">{grade}</h1>
+                                                    </td>
+                                                    <td style="text-align: right; vertical-align: bottom;">
+                                                        <p style="margin:0; font-size:14px; color:#4A5568;">{insights.get("grade_justification", "")[:80]}...</p>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                        </div>
+                                        
+                                        <p style="font-size:16px; line-height:1.6; color:#2D3748; margin-bottom:24px;">
+                                            <strong>Executive Summary:</strong><br>
+                                            {insights.get("executive_summary", "The campaign has been executed successfully across all selected channels.")}
+                                        </p>
+
+                                        <div style="background-color:#EDF2F7; padding:24px; border-radius:12px; margin-bottom:24px;">
+                                            <h3 style="margin:0 0 12px 0; font-size:16px; color:#2D3748; text-transform:uppercase;">Key Performance Insights</h3>
+                                            <ul style="margin:0; padding-left:20px; color:#4A5568; line-height:1.5;">
+                                                {summary_html or "<li>Analysis in progress for real-time traffic data.</li>"}
+                                            </ul>
+                                        </div>
+
+                                        <!-- Footer CTA -->
+                                        <div style="text-align: center; padding-top:10px;">
+                                            <p style="font-size:14px; color:#718096; margin-bottom:20px;">Detailed metrics and technical breakdowns are attached in the full PDF report.</p>
+                                            <a href="#" style="background-color:#E63946; color:#ffffff; padding:16px 32px; text-decoration:none; border-radius:8px; font-weight:bold; font-size:16px; display:inline-block;">View Performance Dashboard</a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 24px 32px; background-color: #F7FAFC; border-top: 1px solid #EDF2F7; text-align: center;">
+                            <p style="margin:0; font-size:12px; color:#A0AEC0;">
+                                &copy; 2026 MarketOS Autonomous Platform<br>
+                                Deep Duo Foundation · 123 Main St, City, State 00000
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+""".strip()
 
         emailed = False
         if recipient:
             send_result = send_email(
                 to_email=recipient,
-                subject=f"Campaign Report: {plan.campaign_name} | Grade: {insights.get('campaign_grade','—')}",
+                subject=f"Campaign Report: {plan.campaign_name} | Grade: {grade}",
                 html_content=html,
                 sender_name="MarketOS Reports",
             )

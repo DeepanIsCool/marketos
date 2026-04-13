@@ -61,6 +61,8 @@ class CampaignState(TypedDict):
     # ── Send context ────────────────────────────────────────────────────────────
     recipient_email:         Optional[str]
     recipient_phone:         Optional[str]
+    contact_id:              Optional[str]
+    contact_list:            Optional[list]
     sender_name:             Optional[str]
     company_name:            Optional[str]
     company_address:         Optional[str]

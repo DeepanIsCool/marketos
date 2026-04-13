@@ -197,7 +197,8 @@ def run_pipeline():
         "Brand tone: bold, high-energy, FOMO-driven, unapologetic. "
         "Include urgency — sale ends Monday midnight. "
         "Reference our Diwali 2025 campaign that had 32% open rate as benchmark. "
-        "Subject lines should use price anchoring and countdown urgency."
+        "Subject lines should use price anchoring and countdown urgency. "
+        "CRITICAL: Do NOT use unverifiable absolute claims like 'best', 'way better value', or 'number one' in the copy to ensure it passes compliance."
     )
 
     initial_state = {

@@ -127,6 +127,27 @@ def _seed_ab_variant_stats(
         agent_log("EMAIL", f"A/B stats seed failed: {exc}")
 
 
+def _record_email_send_cost(campaign_id: str, workspace_id: str, sends: int) -> None:
+    if not PG_AVAILABLE:
+        return
+
+    cost = sends * 0.50
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO campaign_spend (campaign_id, workspace_id, channel, amount_inr, conversions)
+                VALUES (%s, %s, 'email', %s, 0)
+                """,
+                (campaign_id, workspace_id, cost),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        agent_log("EMAIL", f"Spend record failed (non-fatal): {exc}")
+
+
 # ── Agent Node ───────────────────────────────────────────────────────────────
 
 def email_agent_node(state: dict) -> dict:
@@ -273,6 +294,13 @@ def email_agent_node(state: dict) -> dict:
     result_dict["real_email_status"] = "sent" if real_result.get("sent") else real_result.get("error", "not_attempted")
     result_dict["simulated_recipients"] = max(int(data.get("simulated_recipients", 25000) or 25000), 0)
     result_dict["personalization_signals"] = personalized.get("personalization_signals", [])
+
+    if real_result.get("sent"):
+        _record_email_send_cost(
+            campaign_id=plan.campaign_id,
+            workspace_id=workspace_id,
+            sends=result_dict["simulated_recipients"],
+        )
 
     _seed_ab_variant_stats(
         campaign_id=plan.campaign_id,

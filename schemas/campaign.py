@@ -11,7 +11,7 @@ Changelog:
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
 
@@ -134,17 +134,6 @@ class CampaignState(dict):
 MarketOS — Campaign Data Schemas (Phase 3 additions)
 Append these classes to the existing schemas/campaign.py
 """
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ADD these imports to schemas/campaign.py at the top if not already present:
-# from typing import List, Optional, Dict, Any
-# ─────────────────────────────────────────────────────────────────────────────
-
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-import uuid
-
 
 # ── Finance Agent ─────────────────────────────────────────────────────────────
 

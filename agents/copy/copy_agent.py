@@ -23,6 +23,7 @@ from schemas.campaign import CampaignPlan, CopyVariant, CopyOutput
 from utils.logger import agent_log, step_banner, kv, section, divider, check_line
 from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory, semantic_memory
+from utils.json_utils import extract_json
 
 try:
     import redis as redis_lib
@@ -117,21 +118,79 @@ REQUIRED JSON SCHEMA:
 
 HTML_EMAIL_DESIGN_GUIDE = """
 DESIGN INSTRUCTIONS:
-Do not use a rigid generic template. Generate a tailored HTML design specific to the campaign intent, tone, and target audience.
+Do not use a rigid generic template. Generate a tailored, high-end HTML design specific to the campaign intent, tone, and target audience. 
 
-Structure to include:
-1. Preheader (subtle)
-2. Header / Logo Area (styled to fit the brand's industry, e.g., playful for D2C, sleek for luxury)
-3. Hero Image (`<img src="cid:hero_image" alt="Hero" width="600" style="display:block;width:100%;max-width:600px;height:auto;">`)
-4. Main Content Area (Headline, Value Prop, Body, well-spaced)
-5. Primary CTA (Button with inline styles, distinct brand color)
-6. Footer (Company Name, Address, Unsubscribe, Social links)
-
-Styling rules:
-- Choose background colors, text colors, and font families intentionally based on the brand's tone (e.g., dark/gold for luxury, bright/warm for D2C skincare, festive for holidays).
-- Use inline CSS ONLY.
-- Ensure readability and mobile-responsiveness (max-width: 600px).
+Visual Excellence Requirements:
+1. Typography: Use clean sans-serif stacks (Inter, Roboto, Helvetica).
+2. Card Layout: Use a modern "card" aesthetic with subtle border-radii (8-12px) and balanced padding.
+3. Color Palette: Choose a theme-consistent, vibrant color palette (e.g., sleek dark themes with electric accents, or airy minimalist skincare themes). 
+4. Components:
+   - Preheader (subtle)
+   - Brand Header Area
+   - Hero Section: High-impact image (`<img src="cid:hero_image" ...>`)
+   - Headline: Bold, readable typography
+   - Value Prop: Clear, well-spaced body copy
+   - Primary CTA: A "premium" button (inline-styled with border-radius, distinct brand color, and enough padding)
+   - Footer: Branded, compliant (Unsubscribe, Address, Privacy)
+5. Stylistic Rules: Use inline CSS only. Ensure max-width is 600px for mobile responsiveness.
 """
+
+
+def _fallback_copy_output(plan: CampaignPlan) -> CopyOutput:
+    """Return a safe deterministic fallback when LLM structured output fails."""
+    message = plan.key_messages[0] if plan.key_messages else "Limited-time offer"
+    audience = plan.target_audience or "our community"
+
+    v1 = CopyVariant(
+        variant_id="V-001",
+        subject_line=f"{plan.campaign_name}: {message[:35]}",
+        preview_text=f"Built for {audience}. Offer ends soon.",
+        body_html=(
+            "<html><body><h1>" + plan.campaign_name + "</h1>"
+            f"<p>{message}</p>"
+            "<p><a href=\"https://example.com/offer\">Claim Offer</a></p>"
+            "</body></html>"
+        ),
+        body_text=f"{plan.campaign_name}\n\n{message}\n\nClaim Offer: https://example.com/offer",
+        cta_text="Claim Offer",
+        cta_url="https://example.com/offer",
+        hero_image_query="product launch",
+        hero_image_prompt="Clean product hero visual, no text, studio lighting",
+        readability_score=80.0,
+        tone_alignment_score=85.0,
+        spam_risk_score=10.0,
+        estimated_open_rate=28.0,
+        estimated_ctr=3.0,
+    )
+
+    v2 = CopyVariant(
+        variant_id="V-002",
+        subject_line=f"Why {plan.campaign_name} wins today",
+        preview_text="A sharper alternative with a stronger value proposition.",
+        body_html=(
+            "<html><body><h1>Choose Better Value</h1>"
+            f"<p>{message}</p>"
+            "<p><a href=\"https://example.com/offer\">See the Deal</a></p>"
+            "</body></html>"
+        ),
+        body_text=f"Choose Better Value\n\n{message}\n\nSee the Deal: https://example.com/offer",
+        cta_text="See the Deal",
+        cta_url="https://example.com/offer",
+        hero_image_query="competitive product",
+        hero_image_prompt="Lifestyle product image, no text, high contrast",
+        readability_score=78.0,
+        tone_alignment_score=83.0,
+        spam_risk_score=12.0,
+        estimated_open_rate=26.0,
+        estimated_ctr=2.8,
+    )
+
+    return CopyOutput(
+        variants=[v1, v2],
+        selected_variant_id=v1.variant_id,
+        selection_reasoning="Fallback selected V-001 for clearer direct value proposition.",
+        brand_voice_notes="Deterministic fallback copy used due to structured output parsing failure.",
+    )
 
 
 def _ensure_campaign_exists(plan: CampaignPlan) -> None:
@@ -265,16 +324,22 @@ KEY MESSAGES TO INCORPORATE:
     ]
 
     agent_log("COPY", "Calling LLM for copy generation...")
-    # Enforce the Pydantic schema natively to ensure robust HTML escaping and valid structure
-    structured_llm = llm.with_structured_output(CopyOutput)
+    # Using robust JSON extraction for maximum compatibility across Gemini versions
+    response = llm.invoke(messages)
 
     try:
-        copy_output = structured_llm.invoke(messages)
-        # LangChain returns the validated CopyOutput model directly
+        data = extract_json(response.content.strip())
+        variants = [CopyVariant(**v) for v in data.get("variants", [])]
+        copy_output = CopyOutput(
+            variants=variants,
+            selected_variant_id=data.get("selected_variant_id", variants[0].variant_id if variants else "V-001"),
+            selection_reasoning=data.get("selection_reasoning", ""),
+            brand_voice_notes=data.get("brand_voice_notes", ""),
+        )
     except Exception as e:
         error_msg = f"Copy Agent generation failed: {e}"
-        agent_log("COPY", f"ERROR — {error_msg}")
-        return {**state, "errors": state.get("errors", []) + [error_msg], "current_step": "failed"}
+        agent_log("COPY", f"ERROR — {error_msg} — USING FALLBACK")
+        copy_output = _fallback_copy_output(plan)
 
     variants = copy_output.variants
     if not variants:

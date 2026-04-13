@@ -328,6 +328,13 @@ class SocialMediaAgent(AgentBase):
         plan     = CampaignPlan(**plan_data)
         agent_log("SOCIAL", f"Campaign: {plan.campaign_name}")
 
+        # ── Token Presence Check (for honest demo logging) ───────────────────
+        missing_tokens = []
+        if not os.getenv("META_PAGE_ACCESS_TOKEN"): missing_tokens.append("Meta/Facebook")
+        if not os.getenv("LINKEDIN_ACCESS_TOKEN"):  missing_tokens.append("LinkedIn")
+        if missing_tokens:
+            agent_log("SOCIAL", f"⚠ No API tokens for: {', '.join(missing_tokens)} — content will be generated but NOT published.")
+
         # ── Generate platform content ─────────────────────────────────────
         llm = self.get_llm(temperature=0.6)
 

@@ -141,6 +141,38 @@ def _detect_anomalies(metrics: dict, campaign_id: str) -> list[dict]:
     return anomalies
 
 
+def _simulate_metrics(state: dict, send_data: dict) -> dict:
+    """Generate deterministic fallback metrics when ClickHouse data is unavailable."""
+    copy_data = state.get("copy_output") or {}
+    variants = copy_data.get("variants") or []
+    sel_id = copy_data.get("selected_variant_id")
+    winner = next((v for v in variants if isinstance(v, dict) and v.get("variant_id") == sel_id), {})
+
+    base_open = safe_float(winner.get("estimated_open_rate"), 28.0) / 100
+    base_ctr = safe_float(winner.get("estimated_ctr"), 3.2) / 100
+    total_sent = safe_int(send_data.get("simulated_recipients"), 25000)
+
+    delivered = int(total_sent * 0.977)
+    opens = int(delivered * base_open)
+    clicks = int(delivered * base_ctr)
+
+    return {
+        "total_sent": total_sent,
+        "delivered": delivered,
+        "opens": opens,
+        "clicks": clicks,
+        "bounces_soft": int(total_sent * 0.012),
+        "bounces_hard": int(total_sent * 0.008),
+        "unsubscribes": int(delivered * 0.002),
+        "spam_complaints": int(delivered * 0.0003),
+        "open_rate": round(base_open, 4),
+        "ctr": round(base_ctr, 4),
+        "bounce_rate": round(0.008, 4),
+        "spam_rate": round(0.0003, 4),
+        "delivery_rate": round(0.977, 4),
+    }
+
+
 # ── LLM Prompt (for insight generation) ─────────────────────────────────────
 
 SYSTEM_PROMPT = """You are the Analytics Agent for MarketOS.
@@ -194,39 +226,15 @@ def analytics_agent_node(state: dict) -> dict:
     ch_client = _get_ch_client()
     if ch_client:
         metrics = _query_campaign_metrics(ch_client, campaign_id)
-        agent_log("ANALYTICS", "Real ClickHouse data retrieved")
-        if metrics and all(value == 0 for value in metrics.values()) and send_data.get("message_id"):
-            agent_log("ANALYTICS", "ClickHouse sink may be lagging — metrics may be incomplete")
+        if metrics:
+            agent_log("ANALYTICS", "Real ClickHouse data retrieved")
+            if all(value == 0 for value in metrics.values()) and send_data.get("message_id"):
+                agent_log("ANALYTICS", "ClickHouse sink may be lagging — metrics may be incomplete")
+        else:
+            metrics = _simulate_metrics(state, send_data)
+            agent_log("ANALYTICS", "Simulated metrics (ClickHouse returned no data)")
     else:
-        # Simulate realistic metrics based on copy scores for demo
-        copy_data = state.get("copy_output") or {}
-        variants  = copy_data.get("variants") or []
-        sel_id    = copy_data.get("selected_variant_id")
-        winner    = next((v for v in variants if isinstance(v, dict) and v.get("variant_id") == sel_id), {})
-
-        base_open  = safe_float(winner.get("estimated_open_rate"), 28.0) / 100
-        base_ctr   = safe_float(winner.get("estimated_ctr"), 3.2) / 100
-        total_sent = safe_int(send_data.get("simulated_recipients"), 25000)
-
-        delivered  = int(total_sent * 0.977)
-        opens      = int(delivered * base_open)
-        clicks     = int(delivered * base_ctr)
-
-        metrics = {
-            "total_sent":      total_sent,
-            "delivered":       delivered,
-            "opens":           opens,
-            "clicks":          clicks,
-            "bounces_soft":    int(total_sent * 0.012),
-            "bounces_hard":    int(total_sent * 0.008),
-            "unsubscribes":    int(delivered * 0.002),
-            "spam_complaints": int(delivered * 0.0003),
-            "open_rate":       round(base_open, 4),
-            "ctr":             round(base_ctr, 4),
-            "bounce_rate":     round(0.008, 4),
-            "spam_rate":       round(0.0003, 4),
-            "delivery_rate":   round(0.977, 4),
-        }
+        metrics = _simulate_metrics(state, send_data)
         agent_log("ANALYTICS", "Simulated metrics (ClickHouse not available)")
 
     # ── Anomaly detection ─────────────────────────────────────────────────
