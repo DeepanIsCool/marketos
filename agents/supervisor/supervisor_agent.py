@@ -23,10 +23,20 @@ from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json
 from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory, semantic_memory
+from core.agent_base import AgentBase
+
+SUPERVISORAGENT_SKILLS = [
+    "product-marketing-context","launch-strategy","marketing-ideas","marketing-psychology"
+]
+
+class SupervisorAgent(AgentBase):
+    def __init__(self):
+        super().__init__("Supervisor Agent", SUPERVISORAGENT_SKILLS)
+
 
 # ── System Prompt ────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Supervisor Agent for MarketOS, an autonomous AI-native marketing operations platform.
+SUPERVISORAGENT_EXPERTISE = """You are the Supervisor Agent for MarketOS, an autonomous AI-native marketing operations platform.
 
 ROLE:
 You receive a raw marketing campaign intent from a user and decompose it into a precise, structured campaign plan. This plan is the single source of truth for all downstream agents.
@@ -125,8 +135,11 @@ def supervisor_node(state: dict) -> dict:
 
     llm = get_llm(temperature=0)
 
+    agent = SupervisorAgent()
+
+
     messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=agent.build_prompt(SUPERVISORAGENT_EXPERTISE)),
         HumanMessage(content=f"Campaign Intent:\n{user_intent}{memory_context}{brand_context}"),
     ]
 

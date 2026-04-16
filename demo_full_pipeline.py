@@ -188,17 +188,8 @@ def run_pipeline():
 
     # ── Campaign Intent ──────────────────────────────────────────────────
     user_intent = (
-        "Launch a Black Friday flash sale campaign for our energy drink brand 'VoltX'. "
-        "We're offering Buy 2 Get 1 Free on VoltX Original (₹99) and VoltX Zero (₹109). "
-        "Target audience: men aged 18-30 in India who are fitness enthusiasts, gamers, "
-        "and startup hustlers. Budget: ₹75,000 across all channels. "
-        "Goal: 1,000 conversions in 3 days. "
-        "Channels: email, SMS, social (Instagram, Facebook, X). "
-        "Brand tone: bold, high-energy, FOMO-driven, unapologetic. "
-        "Include urgency — sale ends Monday midnight. "
-        "Reference our Diwali 2025 campaign that had 32% open rate as benchmark. "
-        "Subject lines should use price anchoring and countdown urgency. "
-        "CRITICAL: Do NOT use unverifiable absolute claims like 'best', 'way better value', or 'number one' in the copy to ensure it passes compliance."
+        "a free ticket to a basketball match if you buy our new sports car. "
+        "send both beautiful email and great sms."
     )
 
     initial_state = {

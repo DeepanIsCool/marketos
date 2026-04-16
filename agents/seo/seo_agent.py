@@ -35,6 +35,12 @@ from utils.agent_base import AgentBase, CircuitBreaker, retry
 from utils.memory import episodic_memory, semantic_memory
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json
+from core.skill_loader import load_skills
+
+SEOAGENT_SKILLS = [
+    "seo-audit","ai-seo","programmatic-seo","schema-markup","site-architecture"
+]
+
 
 PG_DSN    = os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos")
 WORKSPACE = os.getenv("DEFAULT_WORKSPACE_ID", "default")
@@ -53,8 +59,8 @@ class GSCSkill:
     def get_performance(cls, domain: str, days: int = 28) -> dict:
         token = os.getenv("GOOGLE_OAUTH_TOKEN")
         if not token:
-            agent_log("SEO", "No GOOGLE_OAUTH_TOKEN — using simulated GSC data")
-            return cls._simulate(domain)
+            agent_log("SEO", "No GOOGLE_OAUTH_TOKEN — GSC data skipped")
+            return {"rows": [], "status": "skipped", "reason": "no_gsc_token"}
 
         start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
         end   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -80,22 +86,9 @@ class GSCSkill:
                 return json.loads(resp.read().decode())
 
         try:
-            return cls._circuit.call(_call, fallback=cls._simulate(domain))
+            return cls._circuit.call(_call, fallback={"rows": [], "status": "skipped", "reason": "gsc_api_error"})
         except Exception:
-            return cls._simulate(domain)
-
-    @staticmethod
-    def _simulate(domain: str) -> dict:
-        return {
-            "rows": [
-                {"keys": ["vitamin c serum benefits"],  "clicks": 450, "impressions": 8200, "ctr": 0.055, "position": 8.2},
-                {"keys": ["best skincare routine india"],"clicks": 280, "impressions": 6100, "ctr": 0.046, "position": 12.1},
-                {"keys": ["diwali skincare gifts"],     "clicks": 190, "impressions": 4300, "ctr": 0.044, "position": 6.8},
-                {"keys": ["anti aging serum price"],    "clicks": 120, "impressions": 3100, "ctr": 0.039, "position": 15.4},
-                {"keys": ["glowing skin tips"],         "clicks": 95,  "impressions": 2800, "ctr": 0.034, "position": 19.2},
-            ],
-            "simulated": True,
-        }
+            return {"rows": [], "status": "skipped", "reason": "gsc_api_error"}
 
 
 # ── Sub-skill: Keyword Rank ───────────────────────────────────────────────────
@@ -272,11 +265,11 @@ class SEOAgent(AgentBase):
             "opportunities":  keyword_analysis["opportunities"],
             "quick_wins":     keyword_analysis["quick_wins"],
             "content_gaps":   content_gaps,
-            "simulated":      gsc_data.get("simulated", False),
+            "gsc_status":     gsc_data.get("status", "live"),
         }, indent=2)
 
         response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT_XML),
+            SystemMessage(content=SYSTEM_PROMPT_XML + "\n\nSKILLS:\n" + load_skills(SEOAGENT_SKILLS)),
             HumanMessage(content=f"Domain: {domain}\nCampaign topic: {plan.campaign_name}\n\n{gsc_summary}"),
         ])
 

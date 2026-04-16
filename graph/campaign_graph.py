@@ -42,6 +42,7 @@ from agents.competitor.competitor_agent             import competitor_agent_node
 from agents.seo.seo_agent                           import seo_agent_node
 from agents.reporting.reporting_agent               import reporting_agent_node
 from agents.onboarding.onboarding_agent             import onboarding_agent_node
+from agents.voice.voice_agent                       import voice_agent_node
 
 
 # ── Graph State ────────────────────────────────────────────────────────────────
@@ -84,6 +85,7 @@ class CampaignState(TypedDict):
     seo_result:              Optional[dict]
     reporting_result:        Optional[dict]
     onboarding_result:       Optional[dict]
+    voice_result:            Optional[dict]
 
     # ── Internal ────────────────────────────────────────────────────────────────
     _episodic_memories:      Optional[list]
@@ -155,6 +157,7 @@ def build_campaign_graph() -> StateGraph:
     g.add_node("seo_agent",           seo_parallel_node)
     g.add_node("reporting_agent",     reporting_agent_node)
     g.add_node("onboarding_agent",    onboarding_agent_node)
+    g.add_node("voice_agent",         voice_agent_node)
 
     # Entry: dual pipeline
     g.add_conditional_edges(START, pipeline_router,
@@ -175,7 +178,8 @@ def build_campaign_graph() -> StateGraph:
         {"email_agent": "email_agent", "end": END})
 
     g.add_edge("email_agent",        "sms_agent")
-    g.add_edge("sms_agent",          "social_media_agent")
+    g.add_edge("sms_agent",          "voice_agent")
+    g.add_edge("voice_agent",        "social_media_agent")
     g.add_edge("social_media_agent", "analytics_agent")
     g.add_edge("analytics_agent",    "monitor_agent")
     g.add_edge("monitor_agent",      "ab_test_agent")

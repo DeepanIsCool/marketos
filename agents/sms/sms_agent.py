@@ -37,6 +37,12 @@ from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory
 from utils.logger import agent_log, step_banner, kv, section, divider, success_banner
 from utils.json_utils import extract_json, safe_float, safe_int
+from core.skill_loader import load_skills
+
+SMSAGENT_SKILLS = [
+    "copywriting","marketing-psychology"
+]
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -240,12 +246,13 @@ class SMSProviderChain:
                 last_error = e
                 continue
 
-        # All providers failed — return simulation
-        agent_log("SMS", f"All providers failed: {last_error} — using simulation")
+        # All providers failed — return skipped status
+        agent_log("SMS", f"All providers failed: {last_error} — skipping")
         return {
-            "provider":   "simulated",
-            "status":     "simulated",
-            "message_id": f"SIM-{str(uuid.uuid4())[:8].upper()}",
+            "provider":    "none",
+            "status":      "skipped",
+            "reason_code": "all_providers_failed",
+            "message_id":  f"SMS-SKIP-{str(uuid.uuid4())[:8].upper()}",
         }
 
 
@@ -330,8 +337,11 @@ Key messages: {'; '.join(plan.key_messages[:2])}
 Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
 """
         from langchain_core.messages import HumanMessage
+        from core.skill_loader import load_skills
+        sms_skills = load_skills(["copywriting", "marketing-psychology"])
+        
         response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT_XML),
+            SystemMessage(content=SYSTEM_PROMPT_XML + "\n\nSKILLS:\n" + sms_skills),
             HumanMessage(content=campaign_context),
         ])
 
@@ -362,11 +372,11 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
                 agent_log("SMS", f"Contact {recipient} is suppressed — skipping send")
 
         # ── Real send (if phone number provided and not suppressed) ───────
-        send_result = {"provider": "simulated", "status": "simulated"}
+        send_result = {"provider": "none", "status": "skipped", "reason_code": "no_eligible_recipient"}
         if recipient and "@" not in str(recipient) and not suppressed and tcpa_ok:
             send_result = SMSProviderChain.send(str(recipient), selected.get("message", ""))
         else:
-            agent_log("SMS", "Running in simulation mode (no phone number / quiet hours / suppressed)")
+            agent_log("SMS", "No eligible recipient — skipping send")
 
         message_id = f"SMS-{str(uuid.uuid4())[:12].upper()}"
 
@@ -393,8 +403,8 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
             kv("  Est. CTR", f"{v.get('estimated_ctr',0):.1f}%")
 
         section("SEND STATUS")
-        kv("Provider",    send_result.get("provider", "simulated"))
-        kv("Status",      send_result.get("status", "simulated"))
+        kv("Provider",    send_result.get("provider", "none"))
+        kv("Status",      send_result.get("status", "skipped"))
         kv("TCPA/TRAI",   "✅ Compliant" if tcpa_ok else "⚠ Quiet hours — scheduled")
         kv("Send Time",   data.get("optimal_send_time", "TBD"))
 
@@ -420,7 +430,7 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
                 "suppressed":     suppressed,
                 "sent_at":        datetime.now(timezone.utc).isoformat(),
             },
-            "current_step": "social_media_agent",
+            "current_step": "voice_agent",
             "trace": state.get("trace", []) + [{
                 "agent":      "sms_agent",
                 "status":     "sent",

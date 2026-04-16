@@ -33,6 +33,16 @@ from agents.llm.llm_provider import get_llm
 from utils.kafka_bus import publish_event, Topics
 from utils.logger import agent_log, step_banner, kv, section, divider, check_line
 from utils.json_utils import extract_json, safe_float
+from core.agent_base import AgentBase
+
+MONITORAGENT_SKILLS = [
+    "analytics-tracking","revops"
+]
+
+class MonitorAgent(AgentBase):
+    def __init__(self):
+        super().__init__("Monitor Agent", MONITORAGENT_SKILLS)
+
 
 try:
     import psycopg2
@@ -168,7 +178,7 @@ def _execute_remediation(rule_id: str, campaign_id: str, context: dict) -> dict:
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Monitor Agent for MarketOS — the 24/7 system health watchdog.
+MONITORAGENT_EXPERTISE = """You are the Monitor Agent for MarketOS — the 24/7 system health watchdog.
 
 ROLE:
 You receive triggered alert rules and produce a prioritised incident response plan.
@@ -237,8 +247,10 @@ def monitor_agent_node(state: dict) -> dict:
             f"- [{r['severity']}] {r['rule_id']}: {r['metric']} = {r['observed_value']:.4f} (threshold: {r['threshold']})"
             for r in triggered
         ])
+        agent = MonitorAgent()
+
         messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
+            SystemMessage(content=agent.build_prompt(MONITORAGENT_EXPERTISE)),
             HumanMessage(content=f"TRIGGERED ALERTS for campaign {campaign_id}:\n{alert_context}"),
         ]
         llm = get_llm(temperature=0)

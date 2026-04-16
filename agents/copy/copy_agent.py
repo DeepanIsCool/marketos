@@ -73,7 +73,7 @@ HTML EMAIL REQUIREMENTS:
 - DYNAMIC DESIGN: You are generating bespoke templates. Adapt the color palette, typography, margins, and layout style to perfectly match the campaign's intent, brand identity, and audience (e.g., moody luxury, bright skincare, festive holiday).
 - MUST include a strong hero image component: `<img src="cid:hero_image" ...>`
 - One clear CTA button (styled inline, contrasting brand color)
-- Footer MUST contain: "Unsubscribe" link, company address placeholder, privacy link.
+- Footer MUST NOT contain an "Unsubscribe" link or company address, as these will be automatically injected by the MarketOS compliance engine.
 - Never leave placeholder tokens in final HTML. Use realistic filler where needed.
 
 SCORING CRITERIA (score 0–100):

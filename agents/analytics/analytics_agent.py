@@ -28,6 +28,16 @@ from agents.llm.llm_provider import get_llm
 from utils.kafka_bus import publish_event, Topics
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json, safe_float, safe_int
+from core.agent_base import AgentBase
+
+ANALYTICSAGENT_SKILLS = [
+    "analytics-tracking","revops","ab-test-setup"
+]
+
+class AnalyticsAgent(AgentBase):
+    def __init__(self):
+        super().__init__("Analytics Agent", ANALYTICSAGENT_SKILLS)
+
 
 # ── ClickHouse client (optional) ─────────────────────────────────────────────
 try:
@@ -141,41 +151,17 @@ def _detect_anomalies(metrics: dict, campaign_id: str) -> list[dict]:
     return anomalies
 
 
-def _simulate_metrics(state: dict, send_data: dict) -> dict:
-    """Generate deterministic fallback metrics when ClickHouse data is unavailable."""
-    copy_data = state.get("copy_output") or {}
-    variants = copy_data.get("variants") or []
-    sel_id = copy_data.get("selected_variant_id")
-    winner = next((v for v in variants if isinstance(v, dict) and v.get("variant_id") == sel_id), {})
-
-    base_open = safe_float(winner.get("estimated_open_rate"), 28.0) / 100
-    base_ctr = safe_float(winner.get("estimated_ctr"), 3.2) / 100
-    total_sent = safe_int(send_data.get("simulated_recipients"), 25000)
-
-    delivered = int(total_sent * 0.977)
-    opens = int(delivered * base_open)
-    clicks = int(delivered * base_ctr)
-
-    return {
-        "total_sent": total_sent,
-        "delivered": delivered,
-        "opens": opens,
-        "clicks": clicks,
-        "bounces_soft": int(total_sent * 0.012),
-        "bounces_hard": int(total_sent * 0.008),
-        "unsubscribes": int(delivered * 0.002),
-        "spam_complaints": int(delivered * 0.0003),
-        "open_rate": round(base_open, 4),
-        "ctr": round(base_ctr, 4),
-        "bounce_rate": round(0.008, 4),
-        "spam_rate": round(0.0003, 4),
-        "delivery_rate": round(0.977, 4),
-    }
+ZERO_METRICS = {
+    "total_sent": 0, "delivered": 0, "opens": 0, "clicks": 0,
+    "bounces_soft": 0, "bounces_hard": 0, "unsubscribes": 0,
+    "spam_complaints": 0, "open_rate": 0.0, "ctr": 0.0,
+    "bounce_rate": 0.0, "spam_rate": 0.0, "delivery_rate": 0.0,
+}
 
 
 # ── LLM Prompt (for insight generation) ─────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Analytics Agent for MarketOS.
+ANALYTICSAGENT_EXPERTISE = """You are the Analytics Agent for MarketOS.
 
 You receive real-time campaign metrics and produce a structured analysis.
 
@@ -222,20 +208,18 @@ def analytics_agent_node(state: dict) -> dict:
     agent_log("ANALYTICS", f"Campaign: {campaign_id} — {campaign_name}")
     agent_log("ANALYTICS", "Pulling metrics from ClickHouse...")
 
-    # ── Pull real metrics or simulate ────────────────────────────────────
+    # ── Pull real metrics from ClickHouse ──────────────────────────────────
     ch_client = _get_ch_client()
     if ch_client:
         metrics = _query_campaign_metrics(ch_client, campaign_id)
         if metrics:
             agent_log("ANALYTICS", "Real ClickHouse data retrieved")
-            if all(value == 0 for value in metrics.values()) and send_data.get("message_id"):
-                agent_log("ANALYTICS", "ClickHouse sink may be lagging — metrics may be incomplete")
         else:
-            metrics = _simulate_metrics(state, send_data)
-            agent_log("ANALYTICS", "Simulated metrics (ClickHouse returned no data)")
+            metrics = dict(ZERO_METRICS)
+            agent_log("ANALYTICS", "No ClickHouse data for this campaign — using zero baseline")
     else:
-        metrics = _simulate_metrics(state, send_data)
-        agent_log("ANALYTICS", "Simulated metrics (ClickHouse not available)")
+        metrics = dict(ZERO_METRICS)
+        agent_log("ANALYTICS", "ClickHouse not available — using zero baseline")
 
     # ── Anomaly detection ─────────────────────────────────────────────────
     anomalies = _detect_anomalies(metrics, campaign_id)
@@ -254,7 +238,9 @@ REAL-TIME METRICS:
 - Unsubscribes:      {metrics.get('unsubscribes', 0):,}
 ANOMALIES DETECTED: {len(anomalies)} ({', '.join(a['metric'] for a in anomalies) or 'none'})
 """
-    messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=metrics_context)]
+    agent = AnalyticsAgent()
+
+    messages = [SystemMessage(content=agent.build_prompt(ANALYTICSAGENT_EXPERTISE)), HumanMessage(content=metrics_context)]
     response = llm.invoke(messages)
 
     try:

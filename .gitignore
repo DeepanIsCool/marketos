@@ -171,3 +171,15 @@ tmp/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+.agents
+.agent
+
+# Generated artifacts (runtime)
+email_preview.html
+demo_campaign_report.pdf
+test_voice_call.py
+
+# One-off refactor scripts
+fix_*.py
+*refactor*.py

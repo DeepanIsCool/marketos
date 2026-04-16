@@ -1,113 +1,151 @@
 # MarketOS — Local Development Infrastructure
-# PRD-compliant local equivalents for all production services
+# Production-optimized local equivalents for all services
 #
 # Services:
-#   redpanda   → Apache Kafka (MSK Serverless equivalent, Kafka-compatible API)
+#   redpanda   → Apache Kafka (Kafka-compatible, zero ZooKeeper)
 #   postgres   → PostgreSQL 16 + pgvector extension
 #   redis      → Redis 7 (cache + working memory + distributed locks)
 #   clickhouse → ClickHouse (analytics OLAP database)
 #
 # Usage:
-#   docker compose up -d          # start all services
-#   docker compose down           # stop all
+#   docker compose up -d
 #   docker compose down -v        # stop + wipe all data
-#   docker compose logs -f        # tail logs
-#
-# First-time setup after `docker compose up -d`:
-#   docker compose exec postgres psql -U marketos -c "CREATE EXTENSION IF NOT EXISTS vector;"
-#   python infra/init_db.py       # create all tables
-
-version: "3.9"
 
 services:
 
-  # ── Kafka (Redpanda — fully Kafka-compatible, zero ZooKeeper) ──────────────
+  # ── Kafka (Redpanda) ────────────────────────────────────────────────────
   redpanda:
     image: redpandadata/redpanda:v24.1.1
     container_name: marketos_redpanda
+    restart: unless-stopped
     command:
       - redpanda
       - start
       - --smp=1
-      - --memory=512M
+      - --memory=256M
       - --reserve-memory=0M
       - --overprovisioned
       - --node-id=0
+      - --default-log-level=warn
       - --kafka-addr=PLAINTEXT://0.0.0.0:9092
       - --advertise-kafka-addr=PLAINTEXT://localhost:9092
       - --pandaproxy-addr=0.0.0.0:8082
       - --advertise-pandaproxy-addr=localhost:8082
+      - --set=redpanda.auto_create_topics_enabled=true
+      - --set=redpanda.log_segment_size=16777216
+      - --set=redpanda.retention_bytes=104857600
     ports:
-      - "9092:9092" # Kafka API
-      - "8082:8082" # Pandaproxy (REST)
-      - "9644:9644" # Admin API
+      - "9092:9092"
+      - "8082:8082"
+      - "9644:9644"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
+    mem_limit: 512m
     healthcheck:
       test: [ "CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'" ]
-      interval: 10s
+      interval: 15s
       timeout: 5s
-      retries: 10
+      retries: 5
 
-  # Redpanda Console — Kafka topic browser UI at http://localhost:8080
+  # Redpanda Console — http://localhost:8080
   redpanda_console:
     image: redpandadata/console:v2.5.2
     container_name: marketos_console
-    depends_on: [ redpanda ]
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
     environment:
       KAFKA_BROKERS: redpanda:9092
     ports:
       - "8080:8080"
+    mem_limit: 256m
 
-  # ── PostgreSQL 16 + pgvector ───────────────────────────────────────────────
+  # ── PostgreSQL 16 + pgvector ────────────────────────────────────────────
   postgres:
     image: pgvector/pgvector:pg16
     container_name: marketos_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: marketos
       POSTGRES_USER: marketos
       POSTGRES_PASSWORD: marketos_dev
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - max_connections=100
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - log_min_duration_statement=500
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql
+    mem_limit: 1g
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U marketos -d marketos" ]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 10
 
-  # ── Redis 7 ───────────────────────────────────────────────────────────────
+  # ── Redis 7 ─────────────────────────────────────────────────────────────
   redis:
     image: redis:7.2-alpine
     container_name: marketos_redis
-    command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --save ""
+      --loglevel warning
+      --tcp-keepalive 60
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    mem_limit: 640m
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # ── ClickHouse ────────────────────────────────────────────────────────────
+  # ── ClickHouse ──────────────────────────────────────────────────────────
   clickhouse:
     image: clickhouse/clickhouse-server:24.3-alpine
     container_name: marketos_clickhouse
+    restart: unless-stopped
     environment:
       CLICKHOUSE_DB: marketos_analytics
       CLICKHOUSE_USER: marketos
       CLICKHOUSE_PASSWORD: marketos_dev
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     ports:
-      - "8123:8123" # HTTP interface
-      - "9000:9000" # Native protocol
+      - "8123:8123"
+      - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./infra/init_clickhouse.sql:/docker-entrypoint-initdb.d/01_init.sql
+    mem_limit: 1g
     healthcheck:
       test: [ "CMD-SHELL", "clickhouse-client --query 'SELECT 1'" ]
       interval: 10s

@@ -28,6 +28,16 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from agents.llm.llm_provider import get_llm
 from utils.logger import agent_log
 from utils.json_utils import extract_json
+from core.agent_base import AgentBase
+
+PERSONALIZATIONAGENT_SKILLS = [
+    "marketing-psychology","customer-research","copywriting"
+]
+
+class PersonalizationAgent(AgentBase):
+    def __init__(self):
+        super().__init__("Personalization Agent", PERSONALIZATIONAGENT_SKILLS)
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -172,7 +182,7 @@ class SegmentFallbackSkill:
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Personalization Agent for MarketOS.
+PERSONALIZATIONAGENT_EXPERTISE = """You are the Personalization Agent for MarketOS.
 
 Your job: rewrite the provided email copy for one specific contact.
 You must complete this in under 3 seconds — be efficient and focused.
@@ -273,8 +283,10 @@ HTML BODY (personalise text within tags only):
 {variant.get('body_html', '')[:3000]}
 """
     llm = get_llm(temperature=0.3)
+    agent = PersonalizationAgent()
+
     messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=agent.build_prompt(PERSONALIZATIONAGENT_EXPERTISE)),
         HumanMessage(content=contact_context),
     ]
 

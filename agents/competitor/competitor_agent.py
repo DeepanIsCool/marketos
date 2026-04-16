@@ -38,6 +38,12 @@ from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory, semantic_memory, working_memory
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json
+from core.skill_loader import load_skills
+
+COMPETITORAGENT_SKILLS = [
+    "competitor-alternatives","customer-research","pricing-strategy"
+]
+
 
 try:
     import redis as redis_lib
@@ -333,6 +339,9 @@ Valid JSON only.
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class CompetitorAgent(AgentBase):
+    def __init__(self):
+        self.skill_ctx = load_skills(COMPETITORAGENT_SKILLS)
+
     agent_name = "competitor_agent"
     temperature = 0.1
 
@@ -423,7 +432,7 @@ class CompetitorAgent(AgentBase):
         market_intel_raw = search_results if not search_results.startswith("ERROR") else "[]"
         
         response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT_XML),
+            SystemMessage(content=SYSTEM_PROMPT_XML + "\n\nSKILLS:\n" + self.skill_ctx),
             HumanMessage(content=f"""
 Campaign context: {plan.campaign_name} | Audience: {plan.target_audience} | Goal: {plan.goal}
 Search Discoveries: {market_intel_raw}

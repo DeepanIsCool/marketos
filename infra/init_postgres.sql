@@ -261,3 +261,28 @@ CREATE TABLE IF NOT EXISTS content_calendar (
     published_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ── Contact Scores (Lead Scoring Agent) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS contact_scores (
+    contact_id      VARCHAR(64) NOT NULL,
+    workspace_id    VARCHAR(64) NOT NULL DEFAULT 'default',
+    score           NUMERIC(8,2) DEFAULT 0,
+    lifecycle_stage VARCHAR(32) DEFAULT 'subscriber',
+    last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (contact_id, workspace_id)
+);
+
+-- ── Onboarding Plans (Onboarding Agent) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS onboarding_plans (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    plan_id         VARCHAR(64) UNIQUE,
+    workspace_id    VARCHAR(64) NOT NULL DEFAULT 'default',
+    contact_id      VARCHAR(64),
+    segment         VARCHAR(64),
+    status          VARCHAR(32) DEFAULT 'active',
+    current_step    INTEGER DEFAULT 1,
+    total_steps     INTEGER,
+    plan_data       JSONB,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);

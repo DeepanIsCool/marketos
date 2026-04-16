@@ -40,6 +40,12 @@ from utils.memory import episodic_memory
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json, safe_float, safe_int
 from utils.sendgrid_mailer import send_email
+from core.skill_loader import load_skills
+
+REPORTINGAGENT_SKILLS = [
+    "analytics-tracking","revops","copy-editing"
+]
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -292,6 +298,9 @@ Valid JSON only.
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class ReportingAgent(AgentBase):
+    def __init__(self):
+        self.skill_ctx = load_skills(REPORTINGAGENT_SKILLS)
+
     agent_name         = "reporting_agent"
     reflection_enabled = True    # Verify report before sending
     temperature        = 0.3
@@ -331,7 +340,7 @@ class ReportingAgent(AgentBase):
 
         llm = self.get_llm()
         response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT_XML),
+            SystemMessage(content=SYSTEM_PROMPT_XML + "\n\nSKILLS:\n" + self.skill_ctx),
             HumanMessage(content=f"Campaign: {plan.campaign_name}\nAudience: {plan.target_audience}\n\n{metrics_ctx}"),
         ])
 

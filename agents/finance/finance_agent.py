@@ -31,6 +31,16 @@ from schemas.campaign import CampaignPlan
 from utils.kafka_bus import publish_event, Topics
 from utils.logger import agent_log, step_banner, kv, section, divider, check_line
 from utils.json_utils import extract_json, safe_float, safe_int
+from core.agent_base import AgentBase
+
+FINANCEAGENT_SKILLS = [
+    "pricing-strategy","revops","paid-ads"
+]
+
+class FinanceAgent(AgentBase):
+    def __init__(self):
+        super().__init__("Finance Agent", FINANCEAGENT_SKILLS)
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -67,6 +77,21 @@ class BudgetPacingSkill:
             "pacing_pct":      round(pacing_pct, 4),
             "burn_rate_hr":    round(burn_rate_per_hr, 2),
         }
+
+# ── Sub-skill: Token Cost Calculator ─────────────────────────────────────────
+
+class TokenCostSkill:
+    """
+    Calculates API token cost.
+    Gemini 3 Pro reference: ~$1.25 per 1M input tokens. ~$5.00 per 1M output tokens.
+    For simplicity, treating as $2.50 per 1M combined tokens baseline.
+    """
+    RATE_PER_MILLION = 2.50  # USD
+
+    @staticmethod
+    def calculate(total_tokens: int) -> float:
+        return (total_tokens / 1_000_000) * TokenCostSkill.RATE_PER_MILLION
+
 
 
 # ── Sub-skill: ROAS Calculator ────────────────────────────────────────────────
@@ -166,7 +191,7 @@ def _write_roi_attribution(campaign_id: str, roi: dict) -> None:
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Finance Agent for MarketOS — responsible for budget governance and ROI attribution.
+FINANCEAGENT_EXPERTISE = """You are the Finance Agent for MarketOS — responsible for budget governance and ROI attribution.
 
 PRE-SEND MODE: Evaluate whether this campaign has budget headroom to proceed.
 ROI MODE: Calculate return on ad spend and cost per acquisition.
@@ -229,9 +254,15 @@ def finance_agent_node(state: dict) -> dict:
     pacing   = BudgetPacingSkill.calculate(spent, budget, hour)
     roi_calc = ROASCalculatorSkill.calculate(spent, conversions)
     currency = CurrencyNormSkill()
+    
+    # Check Token Usage from upstream pipeline steps
+    api_tokens_used = state.get("api_tokens", 0)
+    token_cost_usd  = TokenCostSkill.calculate(api_tokens_used)
 
     agent_log("FINANCE", f"Spend: ₹{spent:,.0f} / ₹{budget:,.0f}  ({spend_pct*100:.1f}%)")
     agent_log("FINANCE", f"Pacing: {pacing['pacing_pct']*100:.1f}% projected EOD")
+    if api_tokens_used > 0:
+        agent_log("FINANCE", f"Pipeline API Cost: {api_tokens_used:,} tokens (~${token_cost_usd:.4f})")
 
     # ── LLM for recommendations ───────────────────────────────────────────
     mode = "ROI" if analytics else "PRE_SEND"
@@ -251,8 +282,10 @@ ESTIMATED ROAS: {roi_calc.get('roas', 0):.2f}x
 """
     llm = get_llm(temperature=0)
     schema = "PRE-SEND schema" if mode == "PRE_SEND" else "ROI schema"
+    agent = FinanceAgent()
+
     messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=agent.build_prompt(FINANCEAGENT_EXPERTISE)),
         HumanMessage(content=f"{context}\n\nReturn the {schema}."),
     ]
     response = llm.invoke(messages)

@@ -1,20 +1,21 @@
 """
-MarketOS — API Layer
-FastAPI endpoints for campaign execution.
+MarketOS — API Layer (v1)
+Versioned REST API with individual agent access, consistent response envelope,
+and full pipeline execution.
 
-Architecture (PRD §3.3):
-  POST /run-campaign       → Publishes to Kafka, returns 202 Accepted
-  POST /run-campaign/sync  → Blocking execution (for local dev/demo)
-  GET  /campaign/{id}/status → Poll campaign status from PostgreSQL
-  GET  /health              → Infrastructure health check
-
-Production: NestJS/GraphQL (PRD §3.1) — FastAPI is the Python prototype.
+Endpoints:
+  GET  /v1/health                     → Infrastructure health
+  GET  /v1/agents                     → List all agents with metadata
+  POST /v1/agents/{name}/run          → Run a single agent
+  POST /v1/pipeline/campaign          → Full pipeline (sync)
+  POST /v1/pipeline/campaign/async    → Kafka-backed async (202)
+  GET  /v1/pipeline/{id}/status       → Poll campaign status
 """
 
 from __future__ import annotations
 
-import json
 import importlib
+import json
 import os
 import time
 import uuid
@@ -24,88 +25,176 @@ from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from utils.kafka_bus import publish_event, Topics, get_producer, get_event_log
+from utils.kafka_bus import publish_event, Topics, get_producer
 from utils.logger import agent_log
 
-# ── App Setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI(
-    title="MarketOS API",
-    version="2.0.0",
-    description="Event-driven autonomous marketing platform API",
-)
+# ── App ──────────────────────────────────────────────────────────────────────
+
+app = FastAPI(title="MarketOS API", version="1.0.0")
 
 
-# ── Request / Response Models ────────────────────────────────────────────────
+# ── Agent Registry ──────────────────────────────────────────────────────────
+
+AGENT_REGISTRY: dict[str, dict] = {
+    "supervisor":       {"module": "agents.supervisor.supervisor_agent",       "func": "supervisor_node",          "skills": ["product-marketing-context","launch-strategy","marketing-ideas","marketing-psychology"], "temperature": 0.0, "sla": "<500ms"},
+    "competitor":       {"module": "agents.competitor.competitor_agent",       "func": "competitor_agent_node",    "skills": ["competitor-alternatives","customer-research","pricing-strategy"],                      "temperature": 0.1, "sla": "daily"},
+    "seo":              {"module": "agents.seo.seo_agent",                    "func": "seo_agent_node",           "skills": ["seo-audit","ai-seo","programmatic-seo","schema-markup","site-architecture"],              "temperature": 0.0, "sla": "weekly"},
+    "copy":             {"module": "agents.copy.copy_agent",                  "func": "copy_agent_node",          "skills": ["copywriting","copy-editing","email-sequence","cold-email","content-strategy","marketing-psychology"], "temperature": 0.7, "sla": "<8s"},
+    "image":            {"module": "agents.creative.image_engine",            "func": "image_agent_node",         "skills": [],                                                                                         "temperature": None, "sla": "<30s"},
+    "compliance":       {"module": "agents.compliance.compliance_agent",      "func": "compliance_agent_node",    "skills": ["copy-editing","product-marketing-context"],                                               "temperature": 0.0, "sla": "<500ms"},
+    "finance":          {"module": "agents.finance.finance_agent",            "func": "finance_agent_node",       "skills": ["pricing-strategy","revops","paid-ads"],                                                   "temperature": 0.0, "sla": "hourly"},
+    "email":            {"module": "agents.email.email_agent",                "func": "email_agent_node",         "skills": ["email-sequence","copy-editing"],                                                          "temperature": 0.0, "sla": "real-time"},
+    "sms":              {"module": "agents.sms.sms_agent",                    "func": "sms_agent_node",           "skills": ["copywriting","marketing-psychology"],                                                     "temperature": 0.5, "sla": "real-time"},
+    "voice":            {"module": "agents.voice.voice_agent",                "func": "voice_agent_node",         "skills": ["voice-marketing","copywriting"],                                                          "temperature": 0.4, "sla": "real-time"},
+    "social_media":     {"module": "agents.social.social_media_agent",        "func": "social_media_agent_node",  "skills": ["social-content","community-marketing","content-strategy","marketing-psychology"],          "temperature": 0.6, "sla": "scheduled"},
+    "analytics":        {"module": "agents.analytics.analytics_agent",        "func": "analytics_agent_node",     "skills": ["analytics-tracking","revops","ab-test-setup"],                                            "temperature": 0.0, "sla": "5min"},
+    "monitor":          {"module": "agents.monitor.monitor_agent",            "func": "monitor_agent_node",       "skills": ["analytics-tracking","revops"],                                                            "temperature": 0.0, "sla": "<30s"},
+    "ab_test":          {"module": "agents.ab_test.ab_test_agent",            "func": "ab_test_agent_node",       "skills": ["ab-test-setup","analytics-tracking","page-cro"],                                          "temperature": 0.0, "sla": "event-driven"},
+    "lead_scoring":     {"module": "agents.lead_scoring.lead_scoring_agent",  "func": "lead_scoring_agent_node",  "skills": ["revops","sales-enablement","customer-research"],                                          "temperature": 0.0, "sla": "<2s"},
+    "reporting":        {"module": "agents.reporting.reporting_agent",        "func": "reporting_agent_node",     "skills": ["analytics-tracking","revops","copy-editing"],                                             "temperature": 0.3, "sla": "<60s"},
+    "onboarding":       {"module": "agents.onboarding.onboarding_agent",     "func": "onboarding_agent_node",    "skills": ["onboarding-cro","churn-prevention","lead-magnets","email-sequence"],                      "temperature": 0.5, "sla": "event-driven"},
+}
+
+
+def _load_agent_func(name: str):
+    """Dynamically import and return an agent's node function."""
+    entry = AGENT_REGISTRY.get(name)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    mod = importlib.import_module(entry["module"])
+    return getattr(mod, entry["func"])
+
+
+# ── Response Envelope ────────────────────────────────────────────────────────
+
+def _envelope(data: dict, agent: str, elapsed_ms: float, trace_id: str, ok: bool = True, error: str | None = None):
+    return {
+        "ok": ok,
+        "data": data,
+        "error": error,
+        "meta": {
+            "agent": agent,
+            "elapsed_ms": round(elapsed_ms, 1),
+            "trace_id": trace_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+
+# ── Request Models ───────────────────────────────────────────────────────────
+
+class AgentRunRequest(BaseModel):
+    state: dict = Field(..., description="LangGraph state dict to pass to the agent")
 
 class CampaignRequest(BaseModel):
     user_intent:     str = Field(..., description="Natural language campaign intent")
-    recipient_email: Optional[str] = Field(None, description="Email recipient for real send")
-    recipient_phone: Optional[str] = Field(None, description="Phone number for SMS (with country code)")
-    sender_name:     Optional[str] = Field("MarketOS", description="Sender display name")
-    company_name:    Optional[str] = Field("MarketOS", description="Company name for compliance")
-    company_address: Optional[str] = Field("Bengaluru, Karnataka, India", description="Physical address for CAN-SPAM")
-    unsubscribe_url: Optional[str] = Field("https://example.com/unsubscribe", description="Unsubscribe URL")
-    workspace_id:    Optional[str] = Field("default", description="Workspace ID for multi-tenancy")
+    recipient_email: Optional[str] = None
+    recipient_phone: Optional[str] = None
+    sender_name:     str = "MarketOS"
+    company_name:    str = "MarketOS"
+    company_address: str = "Bengaluru, Karnataka, India"
+    unsubscribe_url: str = "https://example.com/unsubscribe"
+    workspace_id:    str = "default"
 
 
-class CampaignAcceptedResponse(BaseModel):
-    campaign_id: str
-    status:      str = "accepted"
-    message:     str
-    kafka_topic: str
+# ── GET /v1/agents — List all agents ─────────────────────────────────────────
+
+@app.get("/v1/agents")
+async def list_agents():
+    """Return metadata for all registered agents."""
+    agents = []
+    for name, meta in AGENT_REGISTRY.items():
+        agents.append({
+            "name": name,
+            "module": meta["module"],
+            "skills": meta["skills"],
+            "temperature": meta["temperature"],
+            "sla": meta["sla"],
+        })
+    return {"ok": True, "data": {"agents": agents, "total": len(agents)}}
 
 
-class CampaignStatusResponse(BaseModel):
-    campaign_id: str
-    status:      str
-    result_data: Optional[dict] = None
-    created_at:  Optional[str] = None
-    updated_at:  Optional[str] = None
+# ── POST /v1/agents/{name}/run — Run single agent ───────────────────────────
+
+@app.post("/v1/agents/{agent_name}/run")
+async def run_agent(agent_name: str, request: AgentRunRequest):
+    """Run a single agent with the provided state and return its output."""
+    fn = _load_agent_func(agent_name)
+    trace_id = str(uuid.uuid4())[:8]
+
+    # Ensure required state keys exist
+    state = {
+        "current_step": agent_name,
+        "errors": [],
+        "trace": [],
+        **request.state,
+    }
+
+    start = time.monotonic()
+    try:
+        result = fn(state)
+        elapsed = (time.monotonic() - start) * 1000
+        return _envelope(result, agent_name, elapsed, trace_id)
+    except Exception as e:
+        elapsed = (time.monotonic() - start) * 1000
+        raise HTTPException(
+            status_code=500,
+            detail=_envelope({}, agent_name, elapsed, trace_id, ok=False, error=str(e)),
+        )
 
 
-class HealthResponse(BaseModel):
-    status:    str
-    kafka:     str
-    postgres:  str
-    redis:     str
-    timestamp: str
+# ── POST /v1/pipeline/campaign — Full sync pipeline ─────────────────────────
+
+@app.post("/v1/pipeline/campaign")
+async def run_pipeline_sync(request: CampaignRequest):
+    """Run the full campaign pipeline synchronously. Returns complete result."""
+    from graph.campaign_graph import campaign_graph
+
+    campaign_id = f"CAMP-{int(time.time())}-{str(uuid.uuid4())[:4].upper()}"
+    trace_id = str(uuid.uuid4())[:8]
+
+    state = {
+        "user_intent":     request.user_intent,
+        "pipeline":        "campaign",
+        "workspace_id":    request.workspace_id,
+        "recipient_email": request.recipient_email,
+        "recipient_phone": request.recipient_phone,
+        "sender_name":     request.sender_name,
+        "company_name":    request.company_name,
+        "company_address": request.company_address,
+        "unsubscribe_url": request.unsubscribe_url,
+        "current_step":    "supervisor",
+        "errors":          [],
+        "trace":           [],
+    }
+
+    start = time.monotonic()
+    try:
+        result = campaign_graph.invoke(state)
+        elapsed = (time.monotonic() - start) * 1000
+        return _envelope(
+            {"campaign_id": campaign_id, "agents_run": len(result.get("trace", [])), "result": result},
+            "pipeline",
+            elapsed,
+            trace_id,
+        )
+    except Exception as e:
+        elapsed = (time.monotonic() - start) * 1000
+        raise HTTPException(
+            status_code=500,
+            detail=_envelope({}, "pipeline", elapsed, trace_id, ok=False, error=str(e)),
+        )
 
 
-AGENT_MODULES = [
-    "agents.supervisor.supervisor_agent",
-    "agents.competitor.competitor_agent",
-    "agents.copy.copy_agent",
-    "agents.creative.image_engine",
-    "agents.compliance.compliance_agent",
-    "agents.finance.finance_agent",
-    "agents.email.email_agent",
-    "agents.sms.sms_agent",
-    "agents.social.social_media_agent",
-    "agents.analytics.analytics_agent",
-    "agents.monitor.monitor_agent",
-    "agents.ab_test.ab_test_agent",
-    "agents.lead_scoring.lead_scoring_agent",
-    "agents.seo.seo_agent",
-    "agents.reporting.reporting_agent",
-    "agents.onboarding.onboarding_agent",
-]
+# ── POST /v1/pipeline/campaign/async — Kafka-backed ─────────────────────────
 
-
-# ── Async Campaign Endpoint (PRD-compliant) ──────────────────────────────────
-
-@app.post("/run-campaign", response_model=CampaignAcceptedResponse, status_code=202)
-async def run_campaign_async(request: CampaignRequest):
-    """
-    Accept a campaign intent and push to Kafka for async processing.
-    Returns immediately with 202 Accepted.
-
-    The background worker (worker.py) consumes from agent.supervisor.tasks
-    and executes the full LangGraph pipeline.
-    """
+@app.post("/v1/pipeline/campaign/async", status_code=202)
+async def run_pipeline_async(request: CampaignRequest):
+    """Accept campaign intent, publish to Kafka, return 202."""
     campaign_id = f"CAMP-{int(time.time())}-{str(uuid.uuid4())[:4].upper()}"
 
     payload = {
@@ -118,76 +207,25 @@ async def run_campaign_async(request: CampaignRequest):
         "company_address": request.company_address,
         "unsubscribe_url": request.unsubscribe_url,
         "workspace_id":    request.workspace_id,
-        "submitted_at":    datetime.now(timezone.utc).isoformat(),
     }
 
-    # Publish to Kafka (or in-memory event log)
-    published = publish_event(
-        topic=Topics.SUPERVISOR_TASKS,
-        source_agent="api",
-        payload=payload,
-        priority="HIGH",
-    )
+    publish_event(topic=Topics.SUPERVISOR_TASKS, source_agent="api", payload=payload, priority="HIGH")
+    _store_campaign(campaign_id, request.workspace_id, request.user_intent)
 
-    # Store in PostgreSQL
-    _create_campaign_record(campaign_id, request.workspace_id, request.user_intent)
-
-    return CampaignAcceptedResponse(
-        campaign_id=campaign_id,
-        status="accepted",
-        message=f"Campaign intent accepted. Poll GET /campaign/{campaign_id}/status for updates.",
-        kafka_topic=Topics.SUPERVISOR_TASKS,
-    )
-
-
-# ── Sync Campaign Endpoint (for demo / local testing) ───────────────────────
-
-@app.post("/run-campaign/sync")
-async def run_campaign_sync(request: CampaignRequest, background_tasks: BackgroundTasks):
-    """
-    Blocking synchronous execution — runs the full pipeline in-process.
-    Use for local dev/demo only. Production should use POST /run-campaign.
-    """
-    from graph.campaign_graph import campaign_graph
-
-    campaign_id = f"CAMP-{int(time.time())}-{str(uuid.uuid4())[:4].upper()}"
-
-    initial_state = {
-        "user_intent":       request.user_intent,
-        "pipeline":          "campaign",
-        "workspace_id":      request.workspace_id,
-        "recipient_email":   request.recipient_email,
-        "recipient_phone":   request.recipient_phone,
-        "sender_name":       request.sender_name or "MarketOS",
-        "company_name":      request.company_name or "MarketOS",
-        "company_address":   request.company_address or "Bengaluru, Karnataka, India",
-        "unsubscribe_url":   request.unsubscribe_url or "https://example.com/unsubscribe",
-        "current_step":      "supervisor",
-        "errors":            [],
-        "trace":             [],
+    return {
+        "ok": True,
+        "data": {"campaign_id": campaign_id, "status": "accepted"},
+        "meta": {"poll_url": f"/v1/pipeline/{campaign_id}/status"},
     }
 
+
+# ── GET /v1/pipeline/{id}/status ─────────────────────────────────────────────
+
+@app.get("/v1/pipeline/{campaign_id}/status")
+async def get_pipeline_status(campaign_id: str):
+    """Poll campaign status from PostgreSQL."""
     try:
-        result = campaign_graph.invoke(initial_state)
-        return {
-            "campaign_id":  campaign_id,
-            "status":       "completed",
-            "agents_run":   len(result.get("trace", [])),
-            "errors":       result.get("errors", []),
-            "trace":        result.get("trace", []),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ── Campaign Status Polling ──────────────────────────────────────────────────
-
-@app.get("/campaign/{campaign_id}/status", response_model=CampaignStatusResponse)
-async def get_campaign_status(campaign_id: str):
-    """Poll the status of a submitted campaign."""
-    try:
-        import psycopg2
-        import psycopg2.extras
+        import psycopg2, psycopg2.extras
         conn = psycopg2.connect(os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos"))
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT * FROM campaigns WHERE campaign_id = %s", (campaign_id,))
@@ -195,107 +233,91 @@ async def get_campaign_status(campaign_id: str):
         conn.close()
         if not row:
             raise HTTPException(status_code=404, detail=f"Campaign {campaign_id} not found")
-        return CampaignStatusResponse(
-            campaign_id=row["campaign_id"],
-            status=row["status"],
-            result_data=json.loads(row["result_data"]) if row.get("result_data") else None,
-            created_at=str(row.get("created_at", "")),
-            updated_at=str(row.get("updated_at", "")),
-        )
+        return {
+            "ok": True,
+            "data": {
+                "campaign_id": row["campaign_id"],
+                "status": row["status"],
+                "result_data": json.loads(row["result_data"]) if row.get("result_data") else None,
+            },
+        }
     except HTTPException:
         raise
     except Exception as e:
-        return CampaignStatusResponse(
-            campaign_id=campaign_id,
-            status="unknown",
-            result_data={"error": str(e)},
-        )
+        return {"ok": False, "data": None, "error": f"DB unavailable: {e}"}
 
 
-# ── Health Check ─────────────────────────────────────────────────────────────
+# ── GET /v1/health ───────────────────────────────────────────────────────────
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/v1/health")
 async def health_check():
-    """Check the health of all infrastructure services."""
-    kafka_status = "disconnected"
-    postgres_status = "disconnected"
-    redis_status = "disconnected"
+    """Check infrastructure health."""
+    checks = {"kafka": "disconnected", "postgres": "disconnected", "redis": "disconnected", "clickhouse": "disconnected"}
 
-    # Kafka
-    producer = get_producer()
-    kafka_status = "connected" if producer.is_connected else "in-memory-mode"
+    checks["kafka"] = "connected" if get_producer().is_connected else "in-memory"
 
-    # PostgreSQL
     try:
         import psycopg2
         conn = psycopg2.connect(os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos"))
         conn.cursor().execute("SELECT 1")
         conn.close()
-        postgres_status = "connected"
+        checks["postgres"] = "connected"
     except Exception:
-        postgres_status = "disconnected"
+        pass
 
-    # Redis
     try:
         import redis
-        r = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-        r.ping()
-        redis_status = "connected"
+        redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0")).ping()
+        checks["redis"] = "connected"
     except Exception:
-        redis_status = "disconnected"
+        pass
 
-    overall = "healthy" if all(s == "connected" for s in [postgres_status, redis_status]) else "degraded"
+    try:
+        from clickhouse_driver import Client
+        Client(host=os.getenv("CLICKHOUSE_HOST", "localhost"), port=int(os.getenv("CLICKHOUSE_PORT", "9000"))).execute("SELECT 1")
+        checks["clickhouse"] = "connected"
+    except Exception:
+        pass
 
-    return HealthResponse(
-        status=overall,
-        kafka=kafka_status,
-        postgres=postgres_status,
-        redis=redis_status,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-
-
-@app.get("/health/agents")
-async def agent_health():
-    results = {}
-    for module_name in AGENT_MODULES:
-        try:
-            importlib.import_module(module_name)
-            results[module_name] = "ok"
-        except Exception as exc:
-            results[module_name] = str(exc)
-    return results
-
-
-# ── Event Log (for demo verification) ───────────────────────────────────────
-
-@app.get("/events")
-async def get_events():
-    """Return all Kafka events published since process start."""
-    events = get_event_log()
+    is_healthy = all(v == "connected" for v in checks.values())
     return {
-        "total_events": len(events),
-        "topics": list(set(e["topic"] for e in events)),
-        "events": events[-50:],  # Last 50
+        "ok": True,
+        "data": {"status": "healthy" if is_healthy else "degraded", **checks},
+        "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
     }
+
+
+# ── GET /v1/health/agents ───────────────────────────────────────────────────
+
+@app.get("/v1/health/agents")
+async def agent_health():
+    """Import-test every agent module."""
+    results = {}
+    for name, meta in AGENT_REGISTRY.items():
+        try:
+            importlib.import_module(meta["module"])
+            results[name] = "ok"
+        except Exception as e:
+            results[name] = str(e)
+    is_healthy = all(v == "ok" for v in results.values())
+    return {"ok": is_healthy, "data": results}
 
 
 # ── DB Helper ────────────────────────────────────────────────────────────────
 
-def _create_campaign_record(campaign_id: str, workspace_id: str, intent: str) -> None:
+def _store_campaign(campaign_id: str, workspace_id: str, intent: str):
     try:
         import psycopg2
         conn = psycopg2.connect(os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos"))
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO campaigns (campaign_id, workspace_id, campaign_name, status, created_at, updated_at)
-                VALUES (%s, %s, %s, 'accepted', NOW(), NOW())
-                ON CONFLICT (campaign_id) DO NOTHING
-            """, (campaign_id, workspace_id or "default", intent[:200]))
+            cur.execute(
+                "INSERT INTO campaigns (campaign_id, workspace_id, campaign_name, status) VALUES (%s,%s,%s,'accepted') ON CONFLICT (campaign_id) DO NOTHING",
+                (campaign_id, workspace_id or "default", intent[:200]),
+            )
         conn.commit()
         conn.close()
     except Exception as e:
-        agent_log("API", f"Campaign record creation failed (non-fatal): {e}")
+        agent_log("API", f"Campaign store failed: {e}")
 
 
 # ── Run ──────────────────────────────────────────────────────────────────────

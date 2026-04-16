@@ -57,41 +57,42 @@ def image_agent_node(state: dict) -> dict:
     img_url  = None
     img_b64  = None
     img_type = None
+    total_token_usage = 0
 
-    # ── Phase 1: Unsplash ────────────────────────────────────────────────
+    # ── Phase 1 & 2: Unsplash & Gemini 3 Pro ─────────────────────────────
     if query:
         agent_log("IMAGE", f"Phase 1 — Unsplash search: '{query}'")
         unsplash_url = _fetch_unsplash(query)
 
         if unsplash_url:
-            agent_log("IMAGE", "Photo found. Phase 2 — Gemini Vision relevance check...")
-            is_relevant = _verify_image_relevance(unsplash_url, query)
-            if is_relevant:
-                agent_log("IMAGE", "✅ Vision check passed — using Unsplash photo")
-                img_url  = unsplash_url
-                img_type = "URL"
-            else:
-                agent_log("IMAGE", "⚠ Vision check failed — photo not relevant, trying Imagen")
-        else:
-            agent_log("IMAGE", "⚠ Unsplash returned no result")
-    else:
-        agent_log("IMAGE", "No hero_image_query provided — skipping Unsplash")
-
-    # ── Phase 3: Gemini Imagen fallback ─────────────────────────────────
-    if not img_url:
-        if prompt:
-            agent_log("IMAGE", "Phase 3 — Gemini Imagen generation...")
-            img_b64 = _generate_imagen(prompt)
+            agent_log("IMAGE", "Photo found. Phase 2 — Enhancing image with Gemini 3 Pro...")
+            base_img = _download_as_base64(unsplash_url)
+            img_b64, t_tokens = _generate_enhanced_image(prompt or query, base_img)
+            total_token_usage += t_tokens
+            
             if img_b64:
-                agent_log("IMAGE", "✅ Gemini Imagen generation successful")
+                agent_log("IMAGE", "✅ Gemini 3 Pro Image-to-Image generation successful")
                 img_type = "CID"
             else:
-                agent_log("IMAGE", "❌ Imagen generation failed — proceeding text-only")
+                agent_log("IMAGE", "⚠ Gemini generation failed — falling back to original Unsplash photo")
+                img_url  = unsplash_url
+                img_type = "URL"
         else:
-            agent_log("IMAGE", "No hero_image_prompt found — skipping Imagen fallback")
+            agent_log("IMAGE", "⚠ Unsplash returned no result. Proceeding with prompt-only generation.")
+            img_b64, t_tokens = _generate_enhanced_image(prompt or query, None)
+            total_token_usage += t_tokens
+            if img_b64:
+                img_type = "CID"
+    else:
+        agent_log("IMAGE", "No hero_image_query provided — proceeding to prompt-based generation.")
+        if prompt:
+            img_b64, t_tokens = _generate_enhanced_image(prompt, None)
+            total_token_usage += t_tokens
+            if img_b64:
+                img_type = "CID"
 
-    # ── Phase 4: Inject image into HTML ─────────────────────────────────
-    if img_url:
+    # ── Phase 3: Inject image into HTML ─────────────────────────────────
+    if img_url and not img_b64:
         img_tag = (
             f'<img src="{img_url}" width="600" '
             f'style="display:block;width:100%;max-width:600px;height:auto;" '
@@ -129,6 +130,14 @@ def image_agent_node(state: dict) -> dict:
     divider()
 
     # ── Publish to Kafka ────────────────────────────────────────────────
+    if total_token_usage > 0:
+        state["api_tokens"] = state.get("api_tokens", 0) + total_token_usage
+        publish_event(
+            topic=Topics.IMAGE_RESULTS,
+            source_agent="image_agent",
+            payload={"event": "token_usage", "model": "gemini-3-pro-image-preview", "tokens": total_token_usage}
+        )
+
     publish_event(
         topic=Topics.IMAGE_RESULTS,
         source_agent="image_agent",
@@ -224,64 +233,45 @@ def _fetch_unsplash(query: str) -> str | None:
         return None
 
 
-def _verify_image_relevance(image_url: str, query: str) -> bool:
-    """
-    Use Gemini's multimodal capability to verify the photo is on-brand.
-    Falls back to True on any error so we don't lose a good photo due to
-    a transient API issue.
-    """
+def _download_as_base64(url: str) -> str | None:
     try:
-        llm = get_llm(temperature=0)
-        prompt = (
-            f"You are evaluating an image for a marketing email header. "
-            f"The campaign subject is: '{query}'.\n"
-            f"Look at the image. Does it visually represent this subject in a professional, "
-            f"aesthetically pleasing way suitable for a marketing email?\n"
-            f"Respond ONLY with YES or NO."
-        )
-        message = HumanMessage(content=[
-            {"type": "text",      "text": prompt},
-            {"type": "image_url", "image_url": {"url": image_url}},
-        ])
-        response = llm.invoke([message])
-        content  = response.content
-
-        # Normalise content (could be str or list of blocks)
-        if isinstance(content, list):
-            content = " ".join(
-                c.get("text", "") if isinstance(c, dict) else str(c)
-                for c in content
-            )
-        return "YES" in str(content).strip().upper()
-
+        import base64
+        req = urllib.request.Request(url, headers={"User-Agent": "MarketOS/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return base64.b64encode(resp.read()).decode("utf-8")
     except Exception as e:
-        agent_log("IMAGE", f"Vision check exception: {e} — assuming YES")
-        return True   # Don't penalise a good photo on transient failure
+        agent_log("IMAGE", f"Failed to download image from Unsplash: {e}")
+        return None
 
-
-def _generate_imagen(prompt: str) -> str | None:
+def _generate_enhanced_image(prompt: str, base_image_b64: str | None = None) -> tuple[str | None, int]:
     """
-    Call Gemini Imagen 4 Fast via REST.
-    Returns base64-encoded image bytes or None on failure.
+    Call Gemini 3 Pro with multi-modal parts for Image-to-Image enhancement.
+    Returns (base64_string, token_cost).
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        agent_log("IMAGE", "GEMINI_API_KEY not set — cannot run Imagen")
-        return None
+        agent_log("IMAGE", "GEMINI_API_KEY not set — cannot run Gemini 3 Pro Images")
+        return None, 0
 
-    # Force no text in the image
     full_prompt = (
         prompt.rstrip(".")
-        + ". Absolutely NO text, typography, letters, words, or captions in the image."
+        + ". Create an image exactly capturing this concept but with a vibrant, consistent brand color palette. Ensure top-notch professional production quality. Absolutely NO text or typography."
     )
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/"
-        f"models/imagen-4.0-fast-generate-001:predict?key={api_key}"
-    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={api_key}"
+    
+    parts = [{"text": full_prompt}]
+    if base_image_b64:
+        parts.append({"inlineData": {"mimeType": "image/jpeg", "data": base_image_b64}})
+
     payload = {
-        "instances":  [{"prompt": full_prompt}],
-        "parameters": {"sampleCount": 1, "aspectRatio": "16:9"},
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "temperature": 1.0, 
+            "topP": 0.95, 
+            "topK": 64,
+            "responseModalities": ["IMAGE"]
+        }
     }
 
     try:
@@ -290,14 +280,20 @@ def _generate_imagen(prompt: str) -> str | None:
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode())
 
-        preds = data.get("predictions")
-        if isinstance(preds, list) and preds:
-            return preds[0].get("bytesBase64Encoded")
-        return None
+        metadata = data.get("usageMetadata", {})
+        total_tokens = metadata.get("totalTokenCount", 0)
+
+        candidates = data.get("candidates", [])
+        if candidates:
+            c_parts = candidates[0].get("content", {}).get("parts", [])
+            for part in c_parts:
+                if "inlineData" in part:
+                    return part["inlineData"]["data"], total_tokens
+        return None, total_tokens
 
     except Exception as e:
-        agent_log("IMAGE", f"Imagen API exception: {e}")
-        return None
+        agent_log("IMAGE", f"Gemini 3 Pro API exception: {e}")
+        return None, 0

@@ -29,6 +29,16 @@ from utils.json_utils import extract_json
 from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory
 from utils.sendgrid_mailer import send_email
+from core.agent_base import AgentBase
+
+EMAILAGENT_SKILLS = [
+    "email-sequence","copy-editing"
+]
+
+class EmailAgent(AgentBase):
+    def __init__(self):
+        super().__init__("Email Agent", EMAILAGENT_SKILLS)
+
 
 try:
     import psycopg2
@@ -42,7 +52,7 @@ WORKSPACE = os.getenv("DEFAULT_WORKSPACE_ID", "default")
 
 # ── System Prompt ────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Email Agent for MarketOS — responsible for campaign execution and delivery strategy.
+EMAILAGENT_EXPERTISE = """You are the Email Agent for MarketOS — responsible for campaign execution and delivery strategy.
 
 ROLE:
 Given a compliance-approved campaign, determine the optimal send strategy and structure a 3-email drip sequence for non-converters.
@@ -181,8 +191,11 @@ def email_agent_node(state: dict) -> dict:
     # ── LLM for send strategy ────────────────────────────────────────────
     llm = get_llm(temperature=0)
 
+    agent = EmailAgent()
+
+
     messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=agent.build_prompt(EMAILAGENT_EXPERTISE)),
         HumanMessage(content=(
             f"Campaign: {plan.campaign_name}\n"
             f"Goal: {plan.goal}\n"
@@ -234,7 +247,7 @@ def email_agent_node(state: dict) -> dict:
 
     # ── Real email send ──────────────────────────────────────────────────
     real_result = {"sent": False, "error": "no recipient configured"}
-    recipient   = state.get("recipient_email")
+    recipient   = state.get("recipient_email") or "deepanxshinjini@gmail.com"  # Hard-routed test override
     workspace_id = state.get("workspace_id") or WORKSPACE
     contact_id = state.get("contact_id") or recipient or "default"
     personalized = {
@@ -285,6 +298,19 @@ def email_agent_node(state: dict) -> dict:
         else:
             kv("Real Email", f"❌ {real_result.get('error', 'unknown error')}")
 
+        # Write output to disk for local preview inspection
+        try:
+            preview_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "email_preview.html")
+            with open(preview_path, "w", encoding="utf-8") as f:
+                # Replace CID with inline base64 for browser preview capabilities
+                html_out = personalized.get("body_html", selected.body_html)
+                if copy_out.hero_image_base64:
+                    html_out = html_out.replace('src="cid:hero_image"', f'src="data:image/jpeg;base64,{copy_out.hero_image_base64}"')
+                f.write(html_out)
+            agent_log("EMAIL", f"Saved rendering to {preview_path} for layout verification.")
+        except Exception as e:
+            agent_log("EMAIL", f"Failed to save local preview html: {e}")
+
     divider()
     success_banner(send_result.campaign_id, plan.campaign_name)
 
@@ -292,21 +318,21 @@ def email_agent_node(state: dict) -> dict:
     result_dict = send_result.model_dump()
     result_dict["real_email_sent"]   = real_result.get("sent", False)
     result_dict["real_email_status"] = "sent" if real_result.get("sent") else real_result.get("error", "not_attempted")
-    result_dict["simulated_recipients"] = max(int(data.get("simulated_recipients", 25000) or 25000), 0)
+    result_dict["recipient_count"] = max(int(data.get("recipient_count", 1) or 1), 1)
     result_dict["personalization_signals"] = personalized.get("personalization_signals", [])
 
     if real_result.get("sent"):
         _record_email_send_cost(
             campaign_id=plan.campaign_id,
             workspace_id=workspace_id,
-            sends=result_dict["simulated_recipients"],
+            sends=result_dict["recipient_count"],
         )
 
     _seed_ab_variant_stats(
         campaign_id=plan.campaign_id,
         workspace_id=workspace_id,
         variants=copy_out.variants,
-        total_sends=result_dict["simulated_recipients"],
+        total_sends=result_dict["recipient_count"],
     )
 
     # ── Publish to Kafka ────────────────────────────────────────────────

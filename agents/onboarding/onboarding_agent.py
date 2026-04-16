@@ -33,6 +33,12 @@ from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory, semantic_memory
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json
+from core.skill_loader import load_skills
+
+ONBOARDINGAGENT_SKILLS = [
+    "onboarding-cro","churn-prevention","lead-magnets","email-sequence"
+]
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -258,6 +264,9 @@ Valid JSON only.
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class OnboardingAgent(AgentBase):
+    def __init__(self):
+        self.skill_ctx = load_skills(ONBOARDINGAGENT_SKILLS)
+
     agent_name = "onboarding_agent"
     temperature = 0.5   # slightly creative for welcoming tone
 
@@ -290,7 +299,7 @@ class OnboardingAgent(AgentBase):
         # ── LLM personalisation ───────────────────────────────────────────
         llm = self.get_llm()
         response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT_XML),
+            SystemMessage(content=SYSTEM_PROMPT_XML + "\n\nSKILLS:\n" + self.skill_ctx),
             HumanMessage(content=f"""
 Workspace type: {workspace_type}
 Company name: {company_name or 'not provided'}

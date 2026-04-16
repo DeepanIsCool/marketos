@@ -27,6 +27,16 @@ from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json, safe_float, safe_int
+from core.agent_base import AgentBase
+
+ABTESTAGENT_SKILLS = [
+    "ab-test-setup","analytics-tracking","page-cro"
+]
+
+class AbTestAgent(AgentBase):
+    def __init__(self):
+        super().__init__("AbTest Agent", ABTESTAGENT_SKILLS)
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -216,7 +226,7 @@ def _promote_winner(campaign_id: str, variant_id: str) -> None:
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the A/B Test Agent for MarketOS.
+ABTESTAGENT_EXPERTISE = """You are the A/B Test Agent for MarketOS.
 
 You receive Bayesian test results and produce a final decision with learnings.
 
@@ -263,26 +273,28 @@ def ab_test_agent_node(state: dict) -> dict:
         variants_raw = db_stats
         agent_log("AB_TEST", f"Loaded {len(variants_raw)} variants from DB")
     else:
-        # Simulate from copy scores (demo mode)
+        # Derive from copy variant scores (deterministic — no randomness)
         raw_variants = copy_data.get("variants", [])
+        total_sends = safe_int((state.get("send_result") or {}).get("recipient_count"), 1000)
+        per_variant = max(total_sends // max(len(raw_variants), 1), 100)
         variants_raw = []
         for v in raw_variants:
             if not isinstance(v, dict):
                 continue
-            base_rate = safe_float(v.get("estimated_open_rate"), 28.0) / 100
-            sends     = random.randint(500, 2000)
-            opens     = int(sends * base_rate * random.uniform(0.85, 1.15))
-            clicks    = int(opens * safe_float(v.get("estimated_ctr"), 3.0) / 100)
+            open_rate = safe_float(v.get("estimated_open_rate"), 28.0) / 100
+            ctr_rate  = safe_float(v.get("estimated_ctr"), 3.0) / 100
+            opens     = int(per_variant * open_rate)
+            clicks    = int(opens * ctr_rate)
             variants_raw.append({
                 "variant_id":  v.get("variant_id", "V-001"),
-                "sends":       sends,
+                "sends":       per_variant,
                 "successes":   opens,
                 "opens":       opens,
                 "clicks":      clicks,
-                "open_rate":   round(opens / max(sends, 1), 4),
-                "ctr":         round(clicks / max(sends, 1), 4),
+                "open_rate":   round(open_rate, 4),
+                "ctr":         round(ctr_rate, 4),
             })
-        agent_log("AB_TEST", "Using simulated variant stats (DB not available)")
+        agent_log("AB_TEST", "Derived variant stats from copy scores (no DB data)")
 
     if len(variants_raw) < 2:
         agent_log("AB_TEST", "Only 1 variant — A/B test not applicable")
@@ -331,8 +343,10 @@ def ab_test_agent_node(state: dict) -> dict:
     ])
 
     llm = get_llm(temperature=0)
+    agent = AbTestAgent()
+
     messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=agent.build_prompt(ABTESTAGENT_EXPERTISE)),
         HumanMessage(content=f"""
 CAMPAIGN: {plan_data.get('campaign_name', 'Unknown')} | Tone: {plan_data.get('tone', 'unknown')}
 VARIANTS:

@@ -33,6 +33,12 @@ from utils.kafka_bus import publish_event, Topics
 from utils.memory import episodic_memory
 from utils.logger import agent_log, step_banner, kv, section, divider
 from utils.json_utils import extract_json, safe_float, safe_int
+from core.skill_loader import load_skills
+
+SOCIALMEDIAAGENT_SKILLS = [
+    "social-content","community-marketing","content-strategy","marketing-psychology"
+]
+
 
 try:
     import psycopg2, psycopg2.extras
@@ -311,6 +317,9 @@ Valid JSON only. No prose.
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class SocialMediaAgent(AgentBase):
+    def __init__(self):
+        self.skill_ctx = load_skills(SOCIALMEDIAAGENT_SKILLS)
+
     agent_name = "social_media_agent"
     reflection_enabled = False
 
@@ -353,7 +362,7 @@ Email subject (winning): {winner.get('subject_line', 'N/A')}
 Email CTA: {winner.get('cta_text', 'N/A')}
 """
         response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT_XML),
+            SystemMessage(content=SYSTEM_PROMPT_XML + "\n\nSKILLS:\n" + self.skill_ctx),
             HumanMessage(content=context),
         ])
 

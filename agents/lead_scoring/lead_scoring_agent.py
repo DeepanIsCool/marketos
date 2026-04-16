@@ -335,41 +335,34 @@ def lead_scoring_agent_node(state: dict) -> dict:
 
     agent_log("LEAD_SCORING", f"Campaign: {campaign_id}")
 
-    # ── Derive contact counts from analytics metrics ───────────────────────
+    # ── Score contacts from real analytics events ──────────────────────────
     total_opens  = safe_int(metrics.get("opens"), 0)
     total_clicks = safe_int(metrics.get("clicks"), 0)
-    spam_reports = safe_int(metrics.get("spam_complaints"), 0)
-
-    # Simulate scoring individual contacts (demo mode — in production this
-    # runs per-event from the Kafka daemon)
     scored_contacts = []
     stage_counts    = {"subscriber": 0, "mql": 0, "sql": 0, "opportunity": 0, "customer": 0}
     new_mqls = 0
-    new_sqls  = 0
+    new_sqls = 0
 
-    # Score a representative sample
-    n_to_score = min(total_opens, 200)   # cap at 200 for pipeline mode
-    for i in range(n_to_score):
-        cid = f"sim-contact-{i:04d}"
+    # In pipeline mode: score engagement events from send_result contact list
+    contact_list = state.get("contact_list") or []
 
-        # Assign event type based on distribution
-        if i < spam_reports:
-            et = "spam_complaint"
-        elif i < total_clicks:
-            et = "email_click"
-        else:
-            et = "email_open"
-
-        result = score_engagement_event(cid, et)
-        stage  = result["lifecycle_stage"]
-        stage_counts[stage] = stage_counts.get(stage, 0) + 1
-
-        if result["stage_changed"] and stage == "mql":
-            new_mqls += 1
-        if result["stage_changed"] and stage == "sql":
-            new_sqls += 1
-
-        scored_contacts.append(result)
+    if not contact_list and (total_opens > 0 or total_clicks > 0):
+        # No explicit contact list but analytics has events — score based on metrics
+        agent_log("LEAD_SCORING", "No contact list — scoring aggregate metrics via LLM only")
+    elif contact_list:
+        for contact in contact_list[:200]:  # cap at 200 for pipeline latency
+            cid = contact.get("contact_id", contact.get("email", "unknown"))
+            et  = contact.get("event_type", "email_open")
+            result = score_engagement_event(cid, et)
+            stage  = result["lifecycle_stage"]
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
+            if result["stage_changed"] and stage == "mql":
+                new_mqls += 1
+            if result["stage_changed"] and stage == "sql":
+                new_sqls += 1
+            scored_contacts.append(result)
+    else:
+        agent_log("LEAD_SCORING", "No contact events to score — returning zero baseline")
 
     agent_log("LEAD_SCORING", f"Scored {len(scored_contacts)} contacts")
     agent_log("LEAD_SCORING", f"New MQLs: {new_mqls}  |  New SQLs: {new_sqls}")
