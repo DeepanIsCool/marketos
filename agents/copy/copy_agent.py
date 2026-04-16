@@ -74,6 +74,8 @@ HTML EMAIL REQUIREMENTS:
 - MUST include a strong hero image component: `<img src="cid:hero_image" ...>`
 - One clear CTA button (styled inline, contrasting brand color)
 - Footer MUST NOT contain an "Unsubscribe" link or company address, as these will be automatically injected by the MarketOS compliance engine.
+- COMPLIANCE MUST HAVE: You MUST explicitly state in the body or footer text that this is a "promotional email" or "advertisement" from the brand. (e.g. "This is a promotional email from [Brand]"). This ensures CANSPAM_004 compliance.
+- BRAND SAFETY: Do NOT make unverifiable absolute claims (e.g. "100% guaranteed results", "the BEST"). This ensures BRAND_001 compliance.
 - Never leave placeholder tokens in final HTML. Use realistic filler where needed.
 
 SCORING CRITERIA (score 0–100):
@@ -149,9 +151,10 @@ def _fallback_copy_output(plan: CampaignPlan) -> CopyOutput:
             "<html><body><h1>" + plan.campaign_name + "</h1>"
             f"<p>{message}</p>"
             "<p><a href=\"https://example.com/offer\">Claim Offer</a></p>"
+            "<p><small>This is a promotional email from VoltX Energy Pvt. Ltd.</small></p>"
             "</body></html>"
         ),
-        body_text=f"{plan.campaign_name}\n\n{message}\n\nClaim Offer: https://example.com/offer",
+        body_text=f"{plan.campaign_name}\n\n{message}\n\nClaim Offer: https://example.com/offer\n\nThis is a promotional email from VoltX Energy Pvt. Ltd.",
         cta_text="Claim Offer",
         cta_url="https://example.com/offer",
         hero_image_query="product launch",
@@ -171,9 +174,10 @@ def _fallback_copy_output(plan: CampaignPlan) -> CopyOutput:
             "<html><body><h1>Choose Better Value</h1>"
             f"<p>{message}</p>"
             "<p><a href=\"https://example.com/offer\">See the Deal</a></p>"
+            "<p><small>This is a promotional email from VoltX Energy Pvt. Ltd.</small></p>"
             "</body></html>"
         ),
-        body_text=f"Choose Better Value\n\n{message}\n\nSee the Deal: https://example.com/offer",
+        body_text=f"Choose Better Value\n\n{message}\n\nSee the Deal: https://example.com/offer\n\nThis is a promotional email from VoltX Energy Pvt. Ltd.",
         cta_text="See the Deal",
         cta_url="https://example.com/offer",
         hero_image_query="competitive product",
