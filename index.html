@@ -22,15 +22,15 @@
           },
           colors: {
             apple: {
-              bg: '#F5F5F7',
+              bg: '#F2DDDC',        // Warm beige ("yellow side" from palette)
               card: '#FFFFFF',
-              text: '#1D1D1F',
-              muted: '#86868B',
-              border: '#E5E5EA',
-              blue: '#0071E3',
-              blueHover: '#0077ED',
-              green: '#34C759',
-              red: '#FF3B30'
+              text: '#3D3D4A',      // Soft dark slate
+              muted: '#8E8E9F',     // Muted tone
+              border: '#E8CAE3',    // Soft border using a very faded tone
+              blue: '#C3C7F4',      // Periwinkle accent from palette
+              blueHover: '#A8ADED', // Darker Periwinkle for hover
+              green: '#96C9A8',     // Subdued green
+              red: '#F6BCBA'        // Soft coral for errors
             }
           },
           animation: {
@@ -57,7 +57,7 @@
 
   <style>
     body {
-      background-color: #F5F5F7;
+      background-color: #F2DDDC;
       color: #1D1D1F;
       overflow-x: hidden;
     }
@@ -71,8 +71,8 @@
     }
 
     .apple-input:focus {
-      border-color: #0071E3;
-      box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+      border-color: #C3C7F4;
+      box-shadow: 0 0 0 3px rgba(195, 199, 244, 0.35);
       outline: none;
     }
 
@@ -429,7 +429,7 @@
                     disabled={isRunning}
                     className={`px-5 py-2.5 rounded-full font-medium text-[13px] transition-all flex items-center gap-2 ${isRunning
                         ? 'bg-apple-border text-apple-muted cursor-not-allowed'
-                        : 'bg-apple-blue hover:bg-apple-blueHover text-white shadow-sm'
+                        : 'bg-apple-blue hover:bg-apple-blueHover text-apple-text shadow-sm'
                       }`}
                   >
                     {isRunning ? (
