@@ -275,14 +275,14 @@ CREATE TABLE IF NOT EXISTS contact_scores (
 -- ── Onboarding Plans (Onboarding Agent) ───────────────────────────────────
 CREATE TABLE IF NOT EXISTS onboarding_plans (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    plan_id         VARCHAR(64) UNIQUE,
+    onboarding_id   VARCHAR(64) UNIQUE,
     workspace_id    VARCHAR(64) NOT NULL DEFAULT 'default',
-    contact_id      VARCHAR(64),
-    segment         VARCHAR(64),
+    workspace_type  VARCHAR(64),
+    user_email      VARCHAR(128),
+    drip_json       JSONB,
+    tasks_json      JSONB,
+    churn_risk      TEXT,
     status          VARCHAR(32) DEFAULT 'active',
-    current_step    INTEGER DEFAULT 1,
-    total_steps     INTEGER,
-    plan_data       JSONB,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
