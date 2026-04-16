@@ -27,22 +27,22 @@ services:
       - --overprovisioned
       - --node-id=0
       - --default-log-level=warn
-      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
-      - --pandaproxy-addr=0.0.0.0:8082
-      - --advertise-pandaproxy-addr=localhost:8082
+      # Internal listener (Docker network — for console + other services)
+      - --kafka-addr=internal://0.0.0.0:29092,external://0.0.0.0:9092
+      - --advertise-kafka-addr=internal://redpanda:29092,external://localhost:9092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:28082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:28082
       - --set=redpanda.auto_create_topics_enabled=true
-      - --set=redpanda.log_segment_size=16777216
-      - --set=redpanda.retention_bytes=104857600
+      - --set=redpanda.log_segment_size_bytes=16777216
     ports:
       - "9092:9092"
-      - "8082:8082"
+      - "28082:28082"
       - "9644:9644"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     mem_limit: 512m
     healthcheck:
-      test: [ "CMD-SHELL", "curl -sf http://localhost:9644/v1/status/ready || rpk cluster health | grep -q 'Healthy'" ]
+      test: [ "CMD-SHELL", "rpk cluster health --api-urls localhost:9644 | grep -q 'Healthy' || curl -sf http://localhost:9644/v1/status/ready" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -57,7 +57,7 @@ services:
       redpanda:
         condition: service_healthy
     environment:
-      KAFKA_BROKERS: redpanda:9092
+      KAFKA_BROKERS: redpanda:29092
     ports:
       - "8080:8080"
     mem_limit: 256m
