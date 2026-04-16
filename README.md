@@ -12,6 +12,15 @@ MarketOS is an AI-native marketing platform built on a 17-agent LangGraph pipeli
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
 - [LLM Provider Configuration](#llm-provider-configuration)
+- [API Reference](#api-reference)
+  - [Response Envelope](#response-envelope)
+  - [GET /v1/health](#get-v1health)
+  - [GET /v1/health/agents](#get-v1healthagents)
+  - [GET /v1/agents](#get-v1agents)
+  - [POST /v1/agents/{name}/run](#post-v1agentsnamerun)
+  - [POST /v1/pipeline/campaign](#post-v1pipelinecampaign)
+  - [POST /v1/pipeline/campaign/async](#post-v1pipelinecampaignasync)
+  - [GET /v1/pipeline/{id}/status](#get-v1pipelineidstatus)
 - [Pipeline Flow](#pipeline-flow)
 - [Agent Reference](#agent-reference)
   - [Supervisor Agent](#1-supervisor-agent)
@@ -134,6 +143,317 @@ OPENROUTER_MODEL=google/gemma-4-31b-it:free   # Free tier default
 | `openrouter` | Configurable via `OPENROUTER_MODEL` | **Production** — route to any model |
 
 To switch providers in production, change **one line** in `.env`. Zero code changes needed.
+
+---
+
+## API Reference
+
+MarketOS exposes a versioned REST API at `http://localhost:8000/v1/`. Start the API server:
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+### Response Envelope
+
+All endpoints return a consistent JSON envelope:
+
+```json
+{
+  "ok": true,
+  "data": { ... },
+  "error": null,
+  "meta": {
+    "agent": "supervisor",
+    "elapsed_ms": 423.1,
+    "trace_id": "a1b2c3d4",
+    "timestamp": "2026-04-16T02:15:36+00:00"
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | `bool` | `true` on success, `false` on error |
+| `data` | `object` | Payload (agent result, campaign status, etc.) |
+| `error` | `string\|null` | Error message if `ok=false` |
+| `meta` | `object` | Trace ID, elapsed time, agent name, timestamp |
+
+---
+
+### GET /v1/health
+
+Check infrastructure connectivity for all services.
+
+```bash
+curl http://localhost:8000/v1/health
+```
+
+**Response (200)**:
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "healthy",
+    "kafka": "connected",
+    "postgres": "connected",
+    "redis": "connected",
+    "clickhouse": "connected"
+  },
+  "meta": { "timestamp": "2026-04-16T02:15:36+00:00" }
+}
+```
+
+| `data.status` | Meaning |
+|---|---|
+| `healthy` | All 4 services connected |
+| `degraded` | 1+ services unreachable |
+
+---
+
+### GET /v1/health/agents
+
+Import-test every registered agent module. Returns `ok: true` only if all 17 agents compile.
+
+```bash
+curl http://localhost:8000/v1/health/agents
+```
+
+**Response (200)**:
+```json
+{
+  "ok": true,
+  "data": {
+    "supervisor": "ok",
+    "competitor": "ok",
+    "seo": "ok",
+    "copy": "ok",
+    "image": "ok",
+    "compliance": "ok",
+    "finance": "ok",
+    "email": "ok",
+    "sms": "ok",
+    "voice": "ok",
+    "social_media": "ok",
+    "analytics": "ok",
+    "monitor": "ok",
+    "ab_test": "ok",
+    "lead_scoring": "ok",
+    "reporting": "ok",
+    "onboarding": "ok"
+  }
+}
+```
+
+---
+
+### GET /v1/agents
+
+List all 17 registered agents with their skills, temperature, and SLA.
+
+```bash
+curl http://localhost:8000/v1/agents
+```
+
+**Response (200)**:
+```json
+{
+  "ok": true,
+  "data": {
+    "agents": [
+      {
+        "name": "supervisor",
+        "module": "agents.supervisor.supervisor_agent",
+        "skills": ["product-marketing-context", "launch-strategy"],
+        "temperature": 0.0,
+        "sla": "<500ms"
+      }
+    ],
+    "total": 17
+  }
+}
+```
+
+---
+
+### POST /v1/agents/{name}/run
+
+Run a **single agent** with the provided LangGraph state dict. This is how you access individual agents directly.
+
+**Parameters**:
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `name` | path | `string` | Yes | Agent name (e.g. `supervisor`, `copy`, `email`) |
+
+**Request Body**:
+```json
+{
+  "state": {
+    "user_intent": "Launch a flash sale for our new product",
+    "workspace_id": "default"
+  }
+}
+```
+
+**Example — Run Supervisor**:
+```bash
+curl -X POST http://localhost:8000/v1/agents/supervisor/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": {
+      "user_intent": "Drive 500 signups for our webinar on AI",
+      "workspace_id": "default"
+    }
+  }'
+```
+
+**Example — Run Compliance on existing copy**:
+```bash
+curl -X POST http://localhost:8000/v1/agents/compliance/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": {
+      "campaign_plan": {"campaign_id": "CAMP-001", "campaign_name": "Flash Sale"},
+      "copy_output": {"variants": [{"variant_id": "V-001", "body_html": "<p>Buy now!</p>"}]}
+    }
+  }'
+```
+
+**Response (200)**:
+```json
+{
+  "ok": true,
+  "data": { "campaign_plan": { ... }, "current_step": "copy_agent" },
+  "meta": { "agent": "supervisor", "elapsed_ms": 423.1, "trace_id": "a1b2c3d4" }
+}
+```
+
+**Errors**:
+| Status | Condition |
+|---|---|
+| `404` | Agent name not found in registry |
+| `500` | Agent execution failed (with error detail in envelope) |
+
+**Available agent names**: `supervisor`, `competitor`, `seo`, `copy`, `image`, `compliance`, `finance`, `email`, `sms`, `voice`, `social_media`, `analytics`, `monitor`, `ab_test`, `lead_scoring`, `reporting`, `onboarding`
+
+---
+
+### POST /v1/pipeline/campaign
+
+Run the **full 17-agent campaign pipeline** synchronously. Returns complete result.
+
+**Request Body**:
+```json
+{
+  "user_intent": "A free ticket to a basketball match if you buy our new sports car",
+  "recipient_email": "user@example.com",
+  "recipient_phone": "+919876543210",
+  "sender_name": "MyBrand",
+  "company_name": "MyBrand Inc.",
+  "company_address": "123 Main St, Bengaluru",
+  "unsubscribe_url": "https://mybrand.com/unsubscribe",
+  "workspace_id": "default"
+}
+```
+
+**Example**:
+```bash
+curl -X POST http://localhost:8000/v1/pipeline/campaign \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_intent": "Launch a summer sale on our fitness subscription",
+    "recipient_email": "test@example.com",
+    "sender_name": "FitBrand",
+    "company_name": "FitBrand Pvt. Ltd.",
+    "company_address": "Bengaluru, India",
+    "unsubscribe_url": "https://fitbrand.in/unsubscribe"
+  }'
+```
+
+**Response (200)**:
+```json
+{
+  "ok": true,
+  "data": {
+    "campaign_id": "CAMP-1713234567-A1B2",
+    "agents_run": 17,
+    "result": { ... }
+  },
+  "meta": { "agent": "pipeline", "elapsed_ms": 45230.5, "trace_id": "x9y8z7" }
+}
+```
+
+---
+
+### POST /v1/pipeline/campaign/async
+
+Accept a campaign intent and publish to Kafka for async processing. Returns `202 Accepted` immediately.
+
+**Request Body**: Same as `POST /v1/pipeline/campaign`.
+
+**Example**:
+```bash
+curl -X POST http://localhost:8000/v1/pipeline/campaign/async \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_intent": "Black Friday flash sale for all products",
+    "recipient_email": "team@example.com"
+  }'
+```
+
+**Response (202)**:
+```json
+{
+  "ok": true,
+  "data": {
+    "campaign_id": "CAMP-1713234567-A1B2",
+    "status": "accepted"
+  },
+  "meta": { "poll_url": "/v1/pipeline/CAMP-1713234567-A1B2/status" }
+}
+```
+
+Use `poll_url` to check progress.
+
+---
+
+### GET /v1/pipeline/{id}/status
+
+Poll campaign status from PostgreSQL.
+
+**Parameters**:
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `id` | path | `string` | Yes | Campaign ID returned from async submission |
+
+**Example**:
+```bash
+curl http://localhost:8000/v1/pipeline/CAMP-1713234567-A1B2/status
+```
+
+**Response (200)**:
+```json
+{
+  "ok": true,
+  "data": {
+    "campaign_id": "CAMP-1713234567-A1B2",
+    "status": "completed",
+    "result_data": { ... }
+  }
+}
+```
+
+| `data.status` | Meaning |
+|---|---|
+| `accepted` | In Kafka queue, not yet picked up |
+| `running` | Pipeline executing |
+| `completed` | All agents finished |
+| `blocked` | Halted by Compliance or Finance gate |
+
+**Errors**:
+| Status | Condition |
+|---|---|
+| `404` | Campaign ID not found |
 
 ---
 
@@ -683,9 +1003,9 @@ MarketOS uses a Docker Compose stack for local development:
 
 All services are **optional**. When unavailable, agents degrade gracefully:
 - No PostgreSQL → In-memory dicts for memory
-- No Kafka → Logging-based event simulation
+- No Kafka → In-memory event log
 - No Redis → Dict fallback for working memory
-- No ClickHouse → Simulated campaign metrics
+- No ClickHouse → Zero-baseline metrics (no fake data generated)
 
 ---
 

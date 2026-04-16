@@ -42,10 +42,11 @@ services:
       - redpanda_data:/var/lib/redpanda/data
     mem_limit: 512m
     healthcheck:
-      test: [ "CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'" ]
-      interval: 15s
+      test: [ "CMD-SHELL", "curl -sf http://localhost:9644/v1/status/ready || rpk cluster health | grep -q 'Healthy'" ]
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   # Redpanda Console — http://localhost:8080
   redpanda_console:

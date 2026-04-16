@@ -321,10 +321,12 @@ def verification_report(result: dict, elapsed: float):
 
     sms_result = result.get("sms_result", {})
     sms_provider = sms_result.get("provider", "none")
-    if sms_provider not in ("simulated", "none"):
+    sms_status = sms_result.get("status", "skipped")
+    if sms_status not in ("skipped", "none") and sms_provider != "none":
         print(f"  📱 SMS:   {GREEN}✅ SENT via {sms_provider}{RESET}")
     else:
-        print(f"  📱 SMS:   {YELLOW}Simulation mode (provider keys not set){RESET}")
+        reason = sms_result.get("reason_code", "provider keys not set")
+        print(f"  📱 SMS:   {YELLOW}Skipped ({reason}){RESET}")
 
     # ── Summary ───────────────────────────────────────────────────────────
     print(f"""
