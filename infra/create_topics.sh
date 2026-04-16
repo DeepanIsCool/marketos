@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BROKER="localhost:9092"
+BROKER="localhost:19092"
 RPK_CMD=(docker compose exec -T redpanda rpk)
 TOPICS=(
   "agent.supervisor.tasks:3:1"

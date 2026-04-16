@@ -25,7 +25,7 @@ try:
 except ImportError:
     CLICKHOUSE_AVAILABLE = False
 
-KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:9092")
+KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:19092")
 CH_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
 CH_PORT = int(os.getenv("CLICKHOUSE_PORT", "9000"))
 CH_DB = os.getenv("CLICKHOUSE_DB", "marketos_analytics")

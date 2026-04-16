@@ -15,7 +15,7 @@ Topic naming convention (PRD §3.3):
   system.metrics             — aggregated metric snapshots
   agent.dlq                  — dead-letter queue
 
-Local dev: connects to Redpanda at localhost:9092 (Kafka-compatible API).
+Local dev: connects to Redpanda at localhost:19092 (Kafka-compatible API).
 Production: set KAFKA_BROKERS to MSK Serverless bootstrap endpoint.
 """
 
@@ -38,7 +38,7 @@ except ImportError:
     agent_log("KAFKA", "confluent-kafka not installed — running in no-op mode (install: pip install confluent-kafka)")
 
 
-KAFKA_BROKERS  = os.getenv("KAFKA_BROKERS", "localhost:9092")
+KAFKA_BROKERS  = os.getenv("KAFKA_BROKERS", "localhost:19092")
 KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "marketos-agents")
 
 

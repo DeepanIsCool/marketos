@@ -25,7 +25,7 @@ try:
 except ImportError:
     PG_AVAILABLE = False
 
-KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:9092")
+KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:19092")
 PG_DSN = os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 

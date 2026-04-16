@@ -147,7 +147,7 @@ def check_infra():
     # Kafka / Redpanda
     producer = get_producer()
     if producer.is_connected:
-        checks["Kafka (Redpanda)"] = (True, "Connected to localhost:9092")
+        checks["Kafka (Redpanda)"] = (True, "Connected to localhost:19092")
     else:
         checks["Kafka (Redpanda)"] = (False, "Not connected — using in-memory event log")
 

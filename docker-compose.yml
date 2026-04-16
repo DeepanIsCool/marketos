@@ -1,15 +1,14 @@
 # MarketOS — Local Development Infrastructure
-# Production-optimized local equivalents for all services
 #
 # Services:
-#   redpanda   → Apache Kafka (Kafka-compatible, zero ZooKeeper)
-#   postgres   → PostgreSQL 16 + pgvector extension
-#   redis      → Redis 7 (cache + working memory + distributed locks)
-#   clickhouse → ClickHouse (analytics OLAP database)
+#   redpanda   → Kafka-compatible streaming (zero ZooKeeper)
+#   postgres   → PostgreSQL 16 + pgvector
+#   redis      → Redis 7 (cache + working memory)
+#   clickhouse → ClickHouse (analytics OLAP)
 #
 # Usage:
 #   docker compose up -d
-#   docker compose down -v        # stop + wipe all data
+#   docker compose down -v   # stop + wipe all data
 
 services:
 
@@ -21,32 +20,29 @@ services:
     command:
       - redpanda
       - start
-      - --smp=1
-      - --memory=256M
-      - --reserve-memory=0M
+      - --smp 1
+      - --memory 256M
+      - --reserve-memory 0M
       - --overprovisioned
-      - --node-id=0
+      - --node-id 0
       - --default-log-level=warn
-      # Internal listener (Docker network — for console + other services)
-      - --kafka-addr=internal://0.0.0.0:29092,external://0.0.0.0:9092
-      - --advertise-kafka-addr=internal://redpanda:29092,external://localhost:9092
-      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:28082
-      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:28082
-      - --set=redpanda.auto_create_topics_enabled=true
-      - --set=redpanda.log_segment_size_bytes=16777216
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
     ports:
-      - "9092:9092"
-      - "28082:28082"
+      - "18082:18082"
+      - "19092:19092"
       - "9644:9644"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     mem_limit: 512m
     healthcheck:
-      test: [ "CMD-SHELL", "rpk cluster health --api-urls localhost:9644 | grep -q 'Healthy' || curl -sf http://localhost:9644/v1/status/ready" ]
-      interval: 10s
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy' || exit 1"]
+      interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 15s
 
   # Redpanda Console — http://localhost:8080
   redpanda_console:
@@ -57,7 +53,7 @@ services:
       redpanda:
         condition: service_healthy
     environment:
-      KAFKA_BROKERS: redpanda:29092
+      KAFKA_BROKERS: redpanda:9092
     ports:
       - "8080:8080"
     mem_limit: 256m
@@ -96,7 +92,7 @@ services:
       - ./infra/init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql
     mem_limit: 1g
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U marketos -d marketos" ]
+      test: ["CMD-SHELL", "pg_isready -U marketos -d marketos"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -121,7 +117,7 @@ services:
       - redis_data:/data
     mem_limit: 640m
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -148,7 +144,7 @@ services:
       - ./infra/init_clickhouse.sql:/docker-entrypoint-initdb.d/01_init.sql
     mem_limit: 1g
     healthcheck:
-      test: [ "CMD-SHELL", "clickhouse-client --query 'SELECT 1'" ]
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 10

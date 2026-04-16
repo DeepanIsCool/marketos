@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 def _kafka_available():
     try:
         from confluent_kafka import Producer
-        p = Producer({"bootstrap.servers": "localhost:9092", "socket.timeout.ms": 2000})
+        p = Producer({"bootstrap.servers": "localhost:19092", "socket.timeout.ms": 2000})
         p.flush(timeout=2.0)
         return True
     except Exception:
@@ -113,7 +113,7 @@ def test_dlq_topic_exists():
     """DLQ topic must be pre-created by create_topics.sh."""
     try:
         from confluent_kafka.admin import AdminClient, NewTopic
-        admin = AdminClient({"bootstrap.servers": "localhost:9092"})
+        admin = AdminClient({"bootstrap.servers": "localhost:19092"})
         metadata = admin.list_topics(timeout=5)
         topics = metadata.topics
         assert "agent.dlq" in topics, "DLQ topic must exist in Redpanda"
