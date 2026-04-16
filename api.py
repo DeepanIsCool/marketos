@@ -26,16 +26,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from utils.kafka_bus import publish_event, Topics, get_producer
 from utils.logger import agent_log
 
 
+from fastapi.middleware.cors import CORSMiddleware
+
 # ── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="MarketOS API", version="1.0.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Agent Registry ──────────────────────────────────────────────────────────
 
@@ -101,6 +110,17 @@ class CampaignRequest(BaseModel):
     workspace_id:    str = "default"
 
 
+# ── GET / — Serve Dashboard ──────────────────────────────────────────────────
+
+@app.get("/")
+async def serve_dashboard():
+    """Serve the single-page MarketOS agency dashboard."""
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Dashboard index.html not found</h1>", status_code=404)
+
 # ── GET /v1/agents — List all agents ─────────────────────────────────────────
 
 @app.get("/v1/agents")
@@ -148,6 +168,44 @@ async def run_agent(agent_name: str, request: AgentRunRequest):
 
 
 # ── POST /v1/pipeline/campaign — Full sync pipeline ─────────────────────────
+
+@app.post("/v1/pipeline/campaign/stream")
+async def run_pipeline_stream(request: CampaignRequest):
+    """Run the campaign pipeline synchronously and stream events via SSE."""
+    from graph.campaign_graph import campaign_graph
+    
+    campaign_id = f"CAMP-{int(time.time())}-{str(uuid.uuid4())[:4].upper()}"
+
+    state = {
+        "user_intent":     request.user_intent,
+        "pipeline":        "campaign",
+        "workspace_id":    request.workspace_id,
+        "recipient_email": request.recipient_email,
+        "recipient_phone": request.recipient_phone,
+        "sender_name":     request.sender_name,
+        "company_name":    request.company_name,
+        "company_address": request.company_address,
+        "unsubscribe_url": request.unsubscribe_url,
+        "current_step":    "supervisor",
+        "errors":          [],
+        "trace":           [],
+    }
+
+    def event_generator():
+        try:
+            for event in campaign_graph.stream(state):
+                for node, update_state in event.items():
+                    data = {
+                        "node": node, 
+                        "trace": [{"agent": t["agent"], "status": t.get("status"), "ok": t.get("ok", True)} for t in update_state.get("trace", [])],
+                        "errors": update_state.get("errors", [])
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+            yield f"event: end\ndata: {json.dumps({'status': 'completed'})}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/v1/pipeline/campaign")
 async def run_pipeline_sync(request: CampaignRequest):
