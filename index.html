@@ -180,6 +180,24 @@
     ];
 
     const ALL_AGENTS = PIPELINE_PHASES.flatMap(p => p.agents);
+    const EXECUTION_AGENT_IDS = [
+      'supervisor',
+      'competitor_agent',
+      'seo_agent',
+      'copy_agent',
+      'image_agent',
+      'compliance_agent',
+      'finance_agent',
+      'email_agent',
+      'sms_agent',
+      'voice_agent',
+      'social_media_agent',
+      'analytics_agent',
+      'monitor_agent',
+      'ab_test_agent',
+      'lead_scoring_agent',
+      'reporting_agent'
+    ];
     const APPROVAL_HIDDEN_KEY_PATTERN = /base64/i;
     const ALWAYS_RUN_AGENT_IDS = new Set([
       'supervisor',
@@ -206,7 +224,10 @@
       const selected = new Set(
         (channels || []).flatMap(ch => CHANNEL_AGENT_IDS[ch] || [])
       );
-      return ALL_AGENTS.filter(agent => ALWAYS_RUN_AGENT_IDS.has(agent.id) || selected.has(agent.id));
+      const byId = new Map(ALL_AGENTS.map(agent => [agent.id, agent]));
+      return EXECUTION_AGENT_IDS
+        .map(id => byId.get(id))
+        .filter(agent => agent && (ALWAYS_RUN_AGENT_IDS.has(agent.id) || selected.has(agent.id)));
     };
 
     const stripApprovalFields = (value) => {

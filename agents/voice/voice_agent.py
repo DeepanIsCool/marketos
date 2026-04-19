@@ -14,6 +14,7 @@ Architecture:
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -92,6 +93,19 @@ def _get_tunnel_url() -> str | None:
         return None
 
 
+def _normalize_phone(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    clean = re.sub(r"[^0-9+]", "", str(phone))
+    if clean.startswith("+"):
+        return clean
+    if len(clean) == 10:
+        return f"+91{clean}"
+    if len(clean) > 10:
+        return f"+{clean}"
+    return clean or None
+
+
 def voice_agent_node(state: dict) -> dict:
     step_banner("VOICE AGENT  ─  Realtime AI Call Dispatcher (Gemini 3.1 Live)")
 
@@ -168,7 +182,7 @@ def voice_agent_node(state: dict) -> dict:
     token = os.getenv("TWILIO_AUTH_TOKEN")
     from_ = os.getenv("TWILIO_FROM_NUMBER", "+15005550006")
 
-    recipient = state.get("recipient_phone")
+    recipient = _normalize_phone(state.get("recipient_phone"))
     call_sid = None
     status = "skipped"
     reason_code = None
@@ -227,6 +241,13 @@ def voice_agent_node(state: dict) -> dict:
         except Exception as e:
             agent_log("VOICE", f"❌ Twilio Call Error: {e}")
             status = "failed"
+            err_text = str(e)
+            if "21219" in err_text:
+                reason_code = "unverified_trial_number"
+            elif "unverified" in err_text.lower():
+                reason_code = "unverified_number"
+            else:
+                reason_code = "twilio_call_error"
             call_sid = f"V-FAIL-{uuid.uuid4().hex[:8].upper()}"
 
     # ── Terminal output ───────────────────────────────────────────────────
