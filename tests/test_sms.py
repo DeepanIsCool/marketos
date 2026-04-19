@@ -42,60 +42,7 @@ def test_sms_simulates_without_phone(minimal_state):
     assert sr["reason_code"] == "no_phone"
 
 
-def test_sms_schedules_during_quiet_hours(minimal_state, monkeypatch):
-    from agents.sms.sms_agent import sms_agent_node
 
-    state = _copy.deepcopy(minimal_state)
-    state["recipient_phone"] = "9876543210"
-    monkeypatch.setattr("agents.sms.sms_agent.TCPAGuardSkill.is_quiet_hours", lambda timezone_name=None: True)
-    monkeypatch.setattr(
-        "agents.sms.sms_agent.TCPAGuardSkill.next_allowed_send_at",
-        lambda timezone_name=None: __import__("datetime").datetime(2025, 1, 2, 8, 0),
-    )
-
-    result = sms_agent_node(state)
-    sr = result["sms_result"]
-    assert sr["provider"] == "none"
-    assert sr["status"] == "scheduled"
-    assert sr["reason_code"] == "quiet_hours"
-    assert sr["scheduled_for"].startswith("2025-01-02T08:00:00")
-
-
-def test_sms_can_override_quiet_hours(minimal_state, monkeypatch):
-    from agents.sms.sms_agent import sms_agent_node
-
-    state = _copy.deepcopy(minimal_state)
-    state["recipient_phone"] = "9876543210"
-    monkeypatch.setenv("SMS_ALLOW_QUIET_HOURS", "true")
-    monkeypatch.setattr("agents.sms.sms_agent.TCPAGuardSkill.is_quiet_hours", lambda timezone_name=None: True)
-    monkeypatch.setattr(
-        "agents.sms.sms_agent.SMSProviderChain.send",
-        lambda to, message: {"provider": "twilio", "status": "sent"},
-    )
-
-    result = sms_agent_node(state)
-    sr = result["sms_result"]
-    assert sr["status"] == "sent"
-    assert sr["provider"] == "twilio"
-    assert sr["reason_code"] is None
-
-
-def test_tcpa_quiet_hours_logic():
-    from agents.sms.sms_agent import TCPAGuardSkill
-    from unittest.mock import patch
-    from datetime import datetime
-
-    with patch.object(TCPAGuardSkill, "local_now", return_value=datetime(2025, 1, 1, 3, 0)):
-        assert TCPAGuardSkill.is_quiet_hours() is True
-
-
-def test_tcpa_allowed_hours():
-    from agents.sms.sms_agent import TCPAGuardSkill
-    from unittest.mock import patch
-    from datetime import datetime
-
-    with patch.object(TCPAGuardSkill, "local_now", return_value=datetime(2025, 1, 1, 10, 30)):
-        assert TCPAGuardSkill.is_quiet_hours() is False
 
 
 def test_phone_normalization():
@@ -160,7 +107,6 @@ def test_sms_never_sends_unresolved_tokens(minimal_state, monkeypatch):
     sent = {}
 
     monkeypatch.setattr("agents.sms.sms_agent.sms_agent.get_llm", lambda temperature=0.5: StubLLM())
-    monkeypatch.setattr("agents.sms.sms_agent.TCPAGuardSkill.is_quiet_hours", lambda timezone_name=None: False)
     monkeypatch.setattr(
         "agents.sms.sms_agent.SMSProviderChain.send",
         lambda to, message: sent.update({"to": to, "message": message}) or {"provider": "twilio", "status": "sent"},

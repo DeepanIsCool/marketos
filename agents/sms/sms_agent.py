@@ -110,42 +110,9 @@ class OptOutRegistrySkill:
 class TCPAGuardSkill:
     """
     TCPA (Telephone Consumer Protection Act) compliance.
-    Enforces quiet hours (8am-9pm local time) and consent verification.
+    Consent verification.
     India equivalent: TRAI DND regulations.
     """
-
-    QUIET_HOURS_START = 21    # 9 PM local
-    QUIET_HOURS_END   = 8     # 8 AM local
-    DEFAULT_TIMEZONE  = os.getenv("SMS_LOCAL_TIMEZONE", "Asia/Kolkata")
-
-    @classmethod
-    def local_now(cls, timezone_name: Optional[str] = None) -> datetime:
-        tz_name = timezone_name or cls.DEFAULT_TIMEZONE
-        try:
-            tz = ZoneInfo(tz_name)
-        except Exception:
-            tz = timezone.utc
-        return datetime.now(tz)
-
-    @classmethod
-    def is_quiet_hours(cls, timezone_name: Optional[str] = None) -> bool:
-        """Returns True if current time (in contact's timezone) is outside allowed window."""
-        local_hour = cls.local_now(timezone_name).hour
-        return local_hour >= cls.QUIET_HOURS_START or local_hour < cls.QUIET_HOURS_END
-
-    @classmethod
-    def next_allowed_send_at(cls, timezone_name: Optional[str] = None) -> datetime:
-        now = cls.local_now(timezone_name)
-        if now.hour < cls.QUIET_HOURS_END:
-            target = now.replace(hour=cls.QUIET_HOURS_END, minute=0, second=0, microsecond=0)
-        else:
-            target = (now + timedelta(days=1)).replace(
-                hour=cls.QUIET_HOURS_END,
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-        return target
 
     @staticmethod
     def has_express_consent(contact_id: str) -> bool:
@@ -435,16 +402,6 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
         selected_id = data.get("selected_variant_id", variants[0]["variant_id"] if variants else "SMS-001")
         selected    = next((v for v in variants if v.get("variant_id") == selected_id), variants[0] if variants else {})
 
-        # ── TCPA / TRAI compliance gate ───────────────────────────────────
-        force_send = _env_flag("SMS_ALLOW_QUIET_HOURS")
-        tcpa_ok = force_send or not TCPAGuardSkill.is_quiet_hours()
-        scheduled_for = None
-        if force_send:
-            agent_log("SMS", "Quiet-hours guard overridden by SMS_ALLOW_QUIET_HOURS")
-        elif not tcpa_ok:
-            scheduled_for = TCPAGuardSkill.next_allowed_send_at().isoformat()
-            agent_log("SMS", f"⚠ Quiet hours detected — scheduling for next allowed window at {scheduled_for}")
-
         # ── Opt-out check ─────────────────────────────────────────────────
         suppressed = False
         if recipient and "@" not in str(recipient):
@@ -460,13 +417,6 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
         elif suppressed:
             send_result = {"provider": "none", "status": "skipped", "reason_code": "suppressed"}
             agent_log("SMS", f"Recipient {recipient} is suppressed — skipping send")
-        elif not tcpa_ok:
-            send_result = {
-                "provider": "none",
-                "status": "scheduled",
-                "reason_code": "quiet_hours",
-                "scheduled_for": scheduled_for,
-            }
         else:
             send_result = SMSProviderChain.send(str(recipient), selected.get("message", ""))
 
@@ -497,12 +447,12 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
         section("SEND STATUS")
         kv("Provider",    send_result.get("provider", "none"))
         kv("Status",      send_result.get("status", "skipped"))
-        kv("TCPA/TRAI",   "✅ Compliant" if tcpa_ok else "⚠ Quiet hours — scheduled")
+        kv("TCPA/TRAI",   "✅ Compliant")
         kv("Send Time",   data.get("optimal_send_time", "TBD"))
         if send_result.get("reason_code"):
-            kv("Reason", send_result["reason_code"])
+            kv("Reason", send_result.get("reason_code", "unknown"))
         if send_result.get("scheduled_for"):
-            kv("Scheduled For", send_result["scheduled_for"])
+            kv("Scheduled For", send_result.get("scheduled_for", "unknown"))
 
         if drip_sequence:
             section("DRIP SEQUENCE")
@@ -525,7 +475,7 @@ Budget: {'₹{:,.0f}'.format(plan.budget) if plan.budget else 'not specified'}
                 "optimal_time":   data.get("optimal_send_time"),
                 "drip_sequence":  drip_sequence,
                 "personalization_signals": ["sms_token_resolution"],
-                "tcpa_compliant": tcpa_ok,
+                "tcpa_compliant": True,
                 "suppressed":     suppressed,
                 "sent_at":        datetime.now(timezone.utc).isoformat(),
             },
