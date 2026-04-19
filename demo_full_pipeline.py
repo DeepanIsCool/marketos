@@ -197,7 +197,7 @@ def run_pipeline():
         "pipeline":          "campaign",
         "workspace_id":      "default",
         "recipient_email":   "sadhukhandeepan@gmail.com",
-        "recipient_phone":   "7003574257",
+        "recipient_phone":   "+917003574257",
         "sender_name":       "VoltX Energy",
         "company_name":      "VoltX Energy Pvt. Ltd.",
         "company_address":   "Level 5, WeWork Embassy Golf Links, Bengaluru 560071, India",
@@ -365,7 +365,7 @@ def main():
     # 3. Run the pipeline
     print(f"\n{BOLD}Starting full 16-agent pipeline...{RESET}")
     print(f"  📧 Email → sadhukhandeepan@gmail.com")
-    print(f"  📱 Phone → 7003574257")
+    print(f"  📱 Phone → +917003574257")
     print(f"  🎯 Demo  → VoltX Black Friday Campaign")
 
     try:

@@ -213,7 +213,7 @@ class TwilioSkill:
     def send(cls, to: str, message: str) -> dict:
         sid   = os.getenv("TWILIO_ACCOUNT_SID")
         token = os.getenv("TWILIO_AUTH_TOKEN")
-        from_ = os.getenv("TWILIO_FROM_NUMBER", "+15005550006")
+        from_ = os.getenv("TWILIO_FROM_NUMBER", "+16414018449")
         if not sid or not token:
             raise ValueError("TWILIO credentials not set")
 
@@ -237,14 +237,8 @@ class TwilioSkill:
 
 
 def _normalize_phone(phone: str) -> str:
-    """Normalize phone number to E.164 format."""
+    """Normalize phone number by keeping only digits and plus."""
     clean = re.sub(r'[^0-9+]', '', str(phone))
-    if clean.startswith('+'):
-        return clean
-    if len(clean) == 10:
-        return f"+91{clean}"
-    if len(clean) > 10 and not clean.startswith('+'):
-        return f"+{clean}"
     return clean
 
 

@@ -101,9 +101,9 @@ def test_tcpa_allowed_hours():
 def test_phone_normalization():
     from agents.sms.sms_agent import _normalize_phone
 
-    assert _normalize_phone("9876543210") == "+919876543210"
+    assert _normalize_phone("9876543210") == "9876543210"
     assert _normalize_phone("+917003574257") == "+917003574257"
-    assert _normalize_phone("07003574257") == "+07003574257"
+    assert _normalize_phone("07003574257") == "07003574257"
 
 
 def test_sms_publishes_kafka_event(minimal_state):

@@ -97,13 +97,7 @@ def _normalize_phone(phone: str | None) -> str | None:
     if not phone:
         return None
     clean = re.sub(r"[^0-9+]", "", str(phone))
-    if clean.startswith("+"):
-        return clean
-    if len(clean) == 10:
-        return f"+91{clean}"
-    if len(clean) > 10:
-        return f"+{clean}"
-    return clean or None
+    return clean if clean else None
 
 
 def voice_agent_node(state: dict) -> dict:
@@ -180,7 +174,7 @@ def voice_agent_node(state: dict) -> dict:
     # ── Dispatch Call via Twilio ──────────────────────────────────────────
     sid   = os.getenv("TWILIO_ACCOUNT_SID")
     token = os.getenv("TWILIO_AUTH_TOKEN")
-    from_ = os.getenv("TWILIO_FROM_NUMBER", "+15005550006")
+    from_ = os.getenv("TWILIO_FROM_NUMBER", "+16414018449")
 
     recipient = _normalize_phone(state.get("recipient_phone"))
     call_sid = None
