@@ -52,6 +52,12 @@ class TestTokenInjector:
         result = TokenInjectorSkill.inject("{{city}} exclusive", {"city": "Mumbai"})
         assert result == "Mumbai exclusive"
 
+    def test_resolve_strips_unknown_tokens(self):
+        from agents.personalization.personalization_agent import TokenInjectorSkill
+
+        result = TokenInjectorSkill.resolve("Hi {{first_name}} {{favorite_product}}!", {"first_name": "Rahul"})
+        assert result == "Hi Rahul!"
+
     def test_profile_richness_empty_is_zero(self):
         from agents.personalization.personalization_agent import TokenInjectorSkill
 

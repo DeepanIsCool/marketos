@@ -283,6 +283,13 @@ def copy_agent_node(state: dict) -> dict:
     plan_data = state.get("campaign_plan", {})
     plan = CampaignPlan(**plan_data)
 
+    if "email" not in plan.channels:
+        agent_log("COPY", "Skipping email copy generation because 'email' is not in channels.")
+        return {
+            **state,
+            "current_step": "image_agent"
+        }
+
     agent_log("COPY", f"Campaign: {plan.campaign_name}")
     agent_log("COPY", f"Tone requested: {plan.tone.upper()}")
     agent_log("COPY", f"Generating 2 copy variants (benefit-led + urgency-led)...")

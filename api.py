@@ -71,9 +71,13 @@ AGENT_REGISTRY: dict[str, dict] = {
 
 def _load_agent_func(name: str):
     """Dynamically import and return an agent's node function."""
-    entry = AGENT_REGISTRY.get(name)
+    normalized_name = name
+    if name.endswith("_agent"):
+        normalized_name = name[:-6]
+    
+    entry = AGENT_REGISTRY.get(normalized_name)
     if not entry:
-        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' (nor '{normalized_name}') not found")
     mod = importlib.import_module(entry["module"])
     return getattr(mod, entry["func"])
 
@@ -101,6 +105,7 @@ class AgentRunRequest(BaseModel):
 
 class CampaignRequest(BaseModel):
     user_intent:     str = Field(..., description="Natural language campaign intent")
+    channels:        Optional[list[str]] = Field(None, description="Explicit channels chosen by the user (email, sms, social)")
     recipient_email: Optional[str] = None
     recipient_phone: Optional[str] = None
     sender_name:     str = "MarketOS"
@@ -178,6 +183,7 @@ async def run_pipeline_stream(request: CampaignRequest):
 
     state = {
         "user_intent":     request.user_intent,
+        "user_channels":   request.channels,
         "pipeline":        "campaign",
         "workspace_id":    request.workspace_id,
         "recipient_email": request.recipient_email,
@@ -217,6 +223,7 @@ async def run_pipeline_sync(request: CampaignRequest):
 
     state = {
         "user_intent":     request.user_intent,
+        "user_channels":   request.channels,
         "pipeline":        "campaign",
         "workspace_id":    request.workspace_id,
         "recipient_email": request.recipient_email,
@@ -258,6 +265,7 @@ async def run_pipeline_async(request: CampaignRequest):
     payload = {
         "campaign_id":     campaign_id,
         "user_intent":     request.user_intent,
+        "user_channels":   request.channels,
         "recipient_email": request.recipient_email,
         "recipient_phone": request.recipient_phone,
         "sender_name":     request.sender_name,

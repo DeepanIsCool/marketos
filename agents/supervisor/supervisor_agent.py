@@ -98,7 +98,10 @@ def supervisor_node(state: dict) -> dict:
     step_banner("SUPERVISOR AGENT  ─  Intent Decomposition & Task Planning")
 
     user_intent = state.get("user_intent", "")
+    user_channels = state.get("user_channels")
     agent_log("SUPERVISOR", f"Received intent → \"{user_intent[:80]}{'...' if len(user_intent) > 80 else ''}\"")
+    if user_channels:
+        agent_log("SUPERVISOR", f"Explicit user channels set: {user_channels}")
 
     # ── Recall past campaigns from episodic memory ────────────────────────
     past_campaigns = episodic_memory.recall(
@@ -140,7 +143,9 @@ def supervisor_node(state: dict) -> dict:
 
     messages = [
         SystemMessage(content=agent.build_prompt(SUPERVISORAGENT_EXPERTISE)),
-        HumanMessage(content=f"Campaign Intent:\n{user_intent}{memory_context}{brand_context}"),
+        HumanMessage(content=f"Campaign Intent:\n{user_intent}\n" +
+                             (f"\nCRITICAL: The user has explicitly selected only these channels: {user_channels}. You MUST ONLY use these channels for this campaign.\n" if user_channels else "") +
+                             f"{memory_context}{brand_context}"),
     ]
 
     agent_log("SUPERVISOR", "Calling LLM to decompose intent...")

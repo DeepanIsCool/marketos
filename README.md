@@ -125,7 +125,7 @@ python demo_full_pipeline.py
 
 ## LLM Provider Configuration
 
-All agents route through a single factory function: `agents/llm/llm_provider.py → get_llm()`. 
+All agents route through a single factory function: `agents/llm/llm_provider.py → get_llm()`.
 
 No agent touches API keys directly.
 
@@ -136,11 +136,11 @@ OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_MODEL=google/gemma-4-31b-it:free   # Free tier default
 ```
 
-| Provider | Model | Use Case |
-|---|---|---|
-| `gemini` | `gemini-2.0-flash` | Development (fast, free tier available) |
-| `anthropic` | `claude-sonnet-4` | High-quality creative copy |
-| `openrouter` | Configurable via `OPENROUTER_MODEL` | **Production** — route to any model |
+| Provider     | Model                               | Use Case                                |
+| ------------ | ----------------------------------- | --------------------------------------- |
+| `gemini`     | `gemini-2.0-flash`                  | Development (fast, free tier available) |
+| `anthropic`  | `claude-sonnet-4`                   | High-quality creative copy              |
+| `openrouter` | Configurable via `OPENROUTER_MODEL` | **Production** — route to any model     |
 
 To switch providers in production, change **one line** in `.env`. Zero code changes needed.
 
@@ -172,12 +172,12 @@ All endpoints return a consistent JSON envelope:
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `ok` | `bool` | `true` on success, `false` on error |
-| `data` | `object` | Payload (agent result, campaign status, etc.) |
-| `error` | `string\|null` | Error message if `ok=false` |
-| `meta` | `object` | Trace ID, elapsed time, agent name, timestamp |
+| Field   | Type           | Description                                   |
+| ------- | -------------- | --------------------------------------------- |
+| `ok`    | `bool`         | `true` on success, `false` on error           |
+| `data`  | `object`       | Payload (agent result, campaign status, etc.) |
+| `error` | `string\|null` | Error message if `ok=false`                   |
+| `meta`  | `object`       | Trace ID, elapsed time, agent name, timestamp |
 
 ---
 
@@ -190,6 +190,7 @@ curl http://localhost:8000/v1/health
 ```
 
 **Response (200)**:
+
 ```json
 {
   "ok": true,
@@ -204,10 +205,10 @@ curl http://localhost:8000/v1/health
 }
 ```
 
-| `data.status` | Meaning |
-|---|---|
-| `healthy` | All 4 services connected |
-| `degraded` | 1+ services unreachable |
+| `data.status` | Meaning                  |
+| ------------- | ------------------------ |
+| `healthy`     | All 4 services connected |
+| `degraded`    | 1+ services unreachable  |
 
 ---
 
@@ -220,6 +221,7 @@ curl http://localhost:8000/v1/health/agents
 ```
 
 **Response (200)**:
+
 ```json
 {
   "ok": true,
@@ -256,6 +258,7 @@ curl http://localhost:8000/v1/agents
 ```
 
 **Response (200)**:
+
 ```json
 {
   "ok": true,
@@ -286,6 +289,7 @@ Run a **single agent** with the provided LangGraph state dict. This is how you a
 | `name` | path | `string` | Yes | Agent name (e.g. `supervisor`, `copy`, `email`) |
 
 **Request Body**:
+
 ```json
 {
   "state": {
@@ -296,6 +300,7 @@ Run a **single agent** with the provided LangGraph state dict. This is how you a
 ```
 
 **Example — Run Supervisor**:
+
 ```bash
 curl -X POST http://localhost:8000/v1/agents/supervisor/run \
   -H "Content-Type: application/json" \
@@ -308,6 +313,7 @@ curl -X POST http://localhost:8000/v1/agents/supervisor/run \
 ```
 
 **Example — Run Compliance on existing copy**:
+
 ```bash
 curl -X POST http://localhost:8000/v1/agents/compliance/run \
   -H "Content-Type: application/json" \
@@ -320,6 +326,7 @@ curl -X POST http://localhost:8000/v1/agents/compliance/run \
 ```
 
 **Response (200)**:
+
 ```json
 {
   "ok": true,
@@ -343,6 +350,7 @@ curl -X POST http://localhost:8000/v1/agents/compliance/run \
 Run the **full 17-agent campaign pipeline** synchronously. Returns complete result.
 
 **Request Body**:
+
 ```json
 {
   "user_intent": "A free ticket to a basketball match if you buy our new sports car",
@@ -357,6 +365,7 @@ Run the **full 17-agent campaign pipeline** synchronously. Returns complete resu
 ```
 
 **Example**:
+
 ```bash
 curl -X POST http://localhost:8000/v1/pipeline/campaign \
   -H "Content-Type: application/json" \
@@ -371,6 +380,7 @@ curl -X POST http://localhost:8000/v1/pipeline/campaign \
 ```
 
 **Response (200)**:
+
 ```json
 {
   "ok": true,
@@ -392,6 +402,7 @@ Accept a campaign intent and publish to Kafka for async processing. Returns `202
 **Request Body**: Same as `POST /v1/pipeline/campaign`.
 
 **Example**:
+
 ```bash
 curl -X POST http://localhost:8000/v1/pipeline/campaign/async \
   -H "Content-Type: application/json" \
@@ -402,6 +413,7 @@ curl -X POST http://localhost:8000/v1/pipeline/campaign/async \
 ```
 
 **Response (202)**:
+
 ```json
 {
   "ok": true,
@@ -427,11 +439,13 @@ Poll campaign status from PostgreSQL.
 | `id` | path | `string` | Yes | Campaign ID returned from async submission |
 
 **Example**:
+
 ```bash
 curl http://localhost:8000/v1/pipeline/CAMP-1713234567-A1B2/status
 ```
 
 **Response (200)**:
+
 ```json
 {
   "ok": true,
@@ -443,12 +457,12 @@ curl http://localhost:8000/v1/pipeline/CAMP-1713234567-A1B2/status
 }
 ```
 
-| `data.status` | Meaning |
-|---|---|
-| `accepted` | In Kafka queue, not yet picked up |
-| `running` | Pipeline executing |
-| `completed` | All agents finished |
-| `blocked` | Halted by Compliance or Finance gate |
+| `data.status` | Meaning                              |
+| ------------- | ------------------------------------ |
+| `accepted`    | In Kafka queue, not yet picked up    |
+| `running`     | Pipeline executing                   |
+| `completed`   | All agents finished                  |
+| `blocked`     | Halted by Compliance or Finance gate |
 
 **Errors**:
 | Status | Condition |
@@ -463,23 +477,23 @@ The campaign graph is defined in `graph/campaign_graph.py` and compiles into a L
 
 ### Execution Order (Pipeline A — Campaign)
 
-| Step | Agent(s) | Gate? | Routes To |
-|---|---|---|---|
-| 1 | Supervisor | — | Competitor + SEO (parallel) |
-| 2 | Competitor + SEO | — | Copy Agent |
-| 3 | Copy Agent | — | Image Agent |
-| 4 | Image Agent | — | Compliance Agent |
-| 5 | Compliance Agent | ✅ `compliance_router` | Finance Agent or `END` |
-| 6 | Finance Agent | ✅ `finance_router` | Email Agent or `END` |
-| 7 | Email Agent | — | SMS Agent |
-| 8 | SMS Agent | — | Voice Agent |
-| 9 | Voice Agent | — | Social Media Agent |
-| 10 | Social Media Agent | — | Analytics Agent |
-| 11 | Analytics Agent | — | Monitor Agent |
-| 12 | Monitor Agent | — | A/B Test Agent |
-| 13 | A/B Test Agent | — | Lead Scoring Agent |
-| 14 | Lead Scoring Agent | — | Reporting Agent |
-| 15 | Reporting Agent | — | `END` |
+| Step | Agent(s)           | Gate?                  | Routes To                   |
+| ---- | ------------------ | ---------------------- | --------------------------- |
+| 1    | Supervisor         | —                      | Competitor + SEO (parallel) |
+| 2    | Competitor + SEO   | —                      | Copy Agent                  |
+| 3    | Copy Agent         | —                      | Image Agent                 |
+| 4    | Image Agent        | —                      | Compliance Agent            |
+| 5    | Compliance Agent   | ✅ `compliance_router` | Finance Agent or `END`      |
+| 6    | Finance Agent      | ✅ `finance_router`    | Email Agent or `END`        |
+| 7    | Email Agent        | —                      | SMS Agent                   |
+| 8    | SMS Agent          | —                      | Voice Agent                 |
+| 9    | Voice Agent        | —                      | Social Media Agent          |
+| 10   | Social Media Agent | —                      | Analytics Agent             |
+| 11   | Analytics Agent    | —                      | Monitor Agent               |
+| 12   | Monitor Agent      | —                      | A/B Test Agent              |
+| 13   | A/B Test Agent     | —                      | Lead Scoring Agent          |
+| 14   | Lead Scoring Agent | —                      | Reporting Agent             |
+| 15   | Reporting Agent    | —                      | `END`                       |
 
 ### Gate Agents
 
@@ -509,11 +523,11 @@ Every agent follows the **Agent Base Pattern** defined in `utils/agent_base.py`:
 
 **Role**: The orchestrator. Receives raw user intent and decomposes it into a structured `CampaignPlan` — the single source of truth for all downstream agents.
 
-| | |
-|---|---|
-| **Skills** | `product-marketing-context`, `launch-strategy`, `marketing-ideas`, `marketing-psychology` |
-| **Temperature** | `0.0` (deterministic) |
-| **SLA** | < 500ms |
+|                 |                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| **Skills**      | `product-marketing-context`, `launch-strategy`, `marketing-ideas`, `marketing-psychology` |
+| **Temperature** | `0.0` (deterministic)                                                                     |
+| **SLA**         | < 500ms                                                                                   |
 
 **Input State**:
 | Key | Type | Description |
@@ -537,12 +551,12 @@ Every agent follows the **Agent Base Pattern** defined in `utils/agent_base.py`:
 
 **Role**: Gathers competitive intelligence via web scraping (Playwright), search APIs, and the Meta Ad Library. Produces a structured intel feed for the Copy Agent and Supervisor.
 
-| | |
-|---|---|
-| **Skills** | `competitor-alternatives`, `customer-research`, `pricing-strategy` |
-| **Temperature** | `0.1` |
-| **SLA** | Daily schedule + on-demand |
-| **Base Class** | `utils.agent_base.AgentBase` (legacy, full-featured) |
+|                 |                                                                    |
+| --------------- | ------------------------------------------------------------------ |
+| **Skills**      | `competitor-alternatives`, `customer-research`, `pricing-strategy` |
+| **Temperature** | `0.1`                                                              |
+| **SLA**         | Daily schedule + on-demand                                         |
+| **Base Class**  | `utils.agent_base.AgentBase` (legacy, full-featured)               |
 
 **Input State**:
 | Key | Type | Description |
@@ -563,12 +577,12 @@ Every agent follows the **Agent Base Pattern** defined in `utils/agent_base.py`:
 
 **Role**: Runs SEO audits, keyword research, and content gap analysis. Feeds keyword intelligence to the Copy Agent so email copy and landing pages are search-optimized.
 
-| | |
-|---|---|
-| **Skills** | `seo-audit`, `ai-seo`, `programmatic-seo`, `schema-markup`, `site-architecture` |
-| **Temperature** | `0.0` |
-| **SLA** | Weekly schedule + on-demand |
-| **Base Class** | `utils.agent_base.AgentBase` (legacy) |
+|                 |                                                                                 |
+| --------------- | ------------------------------------------------------------------------------- |
+| **Skills**      | `seo-audit`, `ai-seo`, `programmatic-seo`, `schema-markup`, `site-architecture` |
+| **Temperature** | `0.0`                                                                           |
+| **SLA**         | Weekly schedule + on-demand                                                     |
+| **Base Class**  | `utils.agent_base.AgentBase` (legacy)                                           |
 
 **Input State**: `campaign_plan`
 
@@ -586,11 +600,11 @@ Every agent follows the **Agent Base Pattern** defined in `utils/agent_base.py`:
 
 **Role**: Expert email copywriter. Generates 2+ scored copy variants (subject line, preheader, body HTML, CTA) based on the campaign plan, competitor intel, and SEO keywords. Selects a winner based on estimated performance metrics.
 
-| | |
-|---|---|
-| **Skills** | `copywriting`, `copy-editing`, `email-sequence`, `cold-email`, `content-strategy`, `marketing-psychology` |
-| **Temperature** | `0.7` (creative) |
-| **SLA** | < 8s |
+|                 |                                                                                                           |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| **Skills**      | `copywriting`, `copy-editing`, `email-sequence`, `cold-email`, `content-strategy`, `marketing-psychology` |
+| **Temperature** | `0.7` (creative)                                                                                          |
+| **SLA**         | < 8s                                                                                                      |
 
 **Input State**:
 | Key | Type | Description |
@@ -617,10 +631,10 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Hybrid visual engine. Searches Unsplash for relevant photography, validates relevance via Gemini Vision, and falls back to Gemini Imagen 4 for AI-generated images. Injects the final image into the winning HTML email variant.
 
-| | |
-|---|---|
+|                 |                                 |
+| --------------- | ------------------------------- |
 | **Temperature** | N/A (vision + image generation) |
-| **SLA** | < 30s |
+| **SLA**         | < 30s                           |
 
 **Input State**:
 | Key | Type | Description |
@@ -644,12 +658,12 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: The legal firewall. Every campaign is gated through this agent. No email or SMS goes out without compliance approval. Checks CAN-SPAM, GDPR, DKIM/SPF/DMARC, suppression lists, and content guidelines.
 
-| | |
-|---|---|
-| **Skills** | `copy-editing`, `product-marketing-context` |
-| **Temperature** | `0.0` (deterministic legal checks) |
-| **SLA** | < 500ms |
-| **Gate** | ✅ Can halt pipeline |
+|                 |                                             |
+| --------------- | ------------------------------------------- |
+| **Skills**      | `copy-editing`, `product-marketing-context` |
+| **Temperature** | `0.0` (deterministic legal checks)          |
+| **SLA**         | < 500ms                                     |
+| **Gate**        | ✅ Can halt pipeline                        |
 
 **Input State**:
 | Key | Type | Description |
@@ -675,12 +689,12 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Two roles: (1) **Pre-send gate** — checks budget isn't exhausted/overpacing (blocks if spend > 110% of daily budget), and (2) **ROI attribution** — calculates ROAS, CPA, and channel-level breakdown.
 
-| | |
-|---|---|
-| **Skills** | `pricing-strategy`, `revops`, `paid-ads` |
-| **Temperature** | `0.0` |
-| **SLA** | Hourly + overspend trigger |
-| **Gate** | ✅ Can halt pipeline |
+|                 |                                          |
+| --------------- | ---------------------------------------- |
+| **Skills**      | `pricing-strategy`, `revops`, `paid-ads` |
+| **Temperature** | `0.0`                                    |
+| **SLA**         | Hourly + overspend trigger               |
+| **Gate**        | ✅ Can halt pipeline                     |
 
 **Sub-skills**: `BudgetPacingSkill`, `ROASCalculatorSkill`, `CurrencyNormSkill`
 
@@ -702,11 +716,11 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Executes the approved campaign. Sends real emails via SendGrid (or SMTP/Gmail fallback). Calls the Personalization Agent per-contact before each send. Stores delivery records in PostgreSQL.
 
-| | |
-|---|---|
-| **Skills** | `email-sequence`, `copy-editing` |
-| **Temperature** | `0.0` |
-| **SLA** | Real-time |
+|                 |                                  |
+| --------------- | -------------------------------- |
+| **Skills**      | `email-sequence`, `copy-editing` |
+| **Temperature** | `0.0`                            |
+| **SLA**         | Real-time                        |
 
 **Input State**:
 | Key | Type | Description |
@@ -733,12 +747,12 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Generates SMS copy adapted from the email campaign, then sends via Twilio. Checks opt-out registry, manages character limits (160/GSM-7), and handles delivery receipts.
 
-| | |
-|---|---|
-| **Skills** | `copywriting`, `marketing-psychology` |
-| **Temperature** | `0.5` |
-| **SLA** | Real-time |
-| **Base Class** | `utils.agent_base.AgentBase` (legacy) |
+|                 |                                       |
+| --------------- | ------------------------------------- |
+| **Skills**      | `copywriting`, `marketing-psychology` |
+| **Temperature** | `0.5`                                 |
+| **SLA**         | Real-time                             |
+| **Base Class**  | `utils.agent_base.AgentBase` (legacy) |
 
 **Input State**: `campaign_plan`, `copy_output`, `recipient_phone`
 
@@ -756,13 +770,14 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Bidirectional voice AI. Generates a conversational persona and talking points, stores instructions in Redis, and dispatches an outbound Twilio call. The Voice Daemon bridges Twilio audio ↔ Gemini 2.5 Flash Native Audio in real-time via WebSockets.
 
-| | |
-|---|---|
-| **Skills** | `voice-marketing`, `copywriting` |
-| **Temperature** | `0.4` |
+|                 |                                               |
+| --------------- | --------------------------------------------- |
+| **Skills**      | `voice-marketing`, `copywriting`              |
+| **Temperature** | `0.4`                                         |
 | **Voice Model** | `models/gemini-2.5-flash-native-audio-latest` |
 
 **Architecture**:
+
 1. LangGraph node generates persona + system instruction
 2. Stored in Redis keyed by `campaign_id`
 3. Twilio `calls.create()` with `<Connect><Stream>` TwiML pointing to daemon's ngrok tunnel
@@ -786,12 +801,12 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Generates platform-specific social posts (Instagram, LinkedIn, X/Twitter, Meta) derived from the winning email copy. Handles character limits, hashtag optimization, and aspect ratios per platform.
 
-| | |
-|---|---|
-| **Skills** | `social-content`, `community-marketing`, `content-strategy`, `marketing-psychology` |
-| **Temperature** | `0.6` |
-| **SLA** | Scheduled |
-| **Base Class** | `utils.agent_base.AgentBase` (legacy) |
+|                 |                                                                                     |
+| --------------- | ----------------------------------------------------------------------------------- |
+| **Skills**      | `social-content`, `community-marketing`, `content-strategy`, `marketing-psychology` |
+| **Temperature** | `0.6`                                                                               |
+| **SLA**         | Scheduled                                                                           |
+| **Base Class**  | `utils.agent_base.AgentBase` (legacy)                                               |
 
 **Input State**: `campaign_plan`, `copy_output`
 
@@ -809,11 +824,11 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Polls ClickHouse for campaign performance metrics. Detects anomalies (open rate collapse, bounce spike, spam surge). Can run as a standalone daemon for 5-minute polling in production.
 
-| | |
-|---|---|
-| **Skills** | `analytics-tracking`, `revops`, `ab-test-setup` |
-| **Temperature** | `0.0` |
-| **SLA** | 5 minutes (daemon) / immediate (pipeline) |
+|                 |                                                 |
+| --------------- | ----------------------------------------------- |
+| **Skills**      | `analytics-tracking`, `revops`, `ab-test-setup` |
+| **Temperature** | `0.0`                                           |
+| **SLA**         | 5 minutes (daemon) / immediate (pipeline)       |
 
 **Input State**: `campaign_plan`, `send_result`
 
@@ -833,13 +848,14 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: "The heartbeat of the 24/7 promise." Evaluates anomalies from Analytics and triggers escalations. Three tiers: INFO (Slack), WARNING (email + Slack), CRITICAL (auto-remediation + PagerDuty + Supervisor).
 
-| | |
-|---|---|
-| **Skills** | `analytics-tracking`, `revops` |
-| **Temperature** | `0.0` |
-| **SLA** | < 30s (breach → action) |
+|                 |                                |
+| --------------- | ------------------------------ |
+| **Skills**      | `analytics-tracking`, `revops` |
+| **Temperature** | `0.0`                          |
+| **SLA**         | < 30s (breach → action)        |
 
 **Auto-Remediation Playbooks**:
+
 - `SPAM_RATE_HIGH` → Pause campaign domain, switch to backup
 - `SMS_FAILURE` → Failover provider (Twilio → Vonage → SNS)
 - `BUDGET_OVERPACE` → Cap spend via Ads API
@@ -860,13 +876,14 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Runs Bayesian A/B statistical tests (not naive open-rate comparison). Declares winners, suppresses losers mid-campaign, and writes learnings to episodic memory for the Copy Agent to learn from.
 
-| | |
-|---|---|
-| **Skills** | `ab-test-setup`, `analytics-tracking`, `page-cro` |
-| **Temperature** | `0.0` |
-| **SLA** | Event-driven (100+ opens threshold) |
+|                 |                                                   |
+| --------------- | ------------------------------------------------- |
+| **Skills**      | `ab-test-setup`, `analytics-tracking`, `page-cro` |
+| **Temperature** | `0.0`                                             |
+| **SLA**         | Event-driven (100+ opens threshold)               |
 
 **Sub-skills**:
+
 - `BayesianStatsSkill` — Beta-distribution Monte Carlo (10,000 draws, pure Python)
 - `SampleSizeCalculator` — MDE-based minimum sample sizing
 - `EarlyStoppingRule` — Declares winner early if P(best) ≥ 0.95
@@ -889,13 +906,14 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Scores contacts based on engagement events (opens, clicks, page visits, purchases). Manages the subscriber → MQL → SQL → opportunity → customer lifecycle. Pushes score updates to CRM via webhook.
 
-| | |
-|---|---|
-| **Skills** | `revops`, `sales-enablement`, `customer-research` |
-| **Temperature** | `0.0` |
-| **SLA** | < 2s/event |
+|                 |                                                   |
+| --------------- | ------------------------------------------------- |
+| **Skills**      | `revops`, `sales-enablement`, `customer-research` |
+| **Temperature** | `0.0`                                             |
+| **SLA**         | < 2s/event                                        |
 
 **Sub-skills**:
+
 - `ScoreDecaySkill` — Halves score every 30 days of inactivity
 - `BehaviourPatternSkill` — Detects buying signals (3+ clicks in 24h, pricing page visits)
 - `StageMachineSkill` — subscriber → MQL (50pts) → SQL (100pts) → opportunity → customer
@@ -919,13 +937,13 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Aggregates all pipeline results into a comprehensive campaign performance report. Generates executive summaries, channel breakdowns, and LLM-powered recommendations.
 
-| | |
-|---|---|
-| **Skills** | `analytics-tracking`, `revops`, `copy-editing` |
-| **Temperature** | `0.3` |
-| **SLA** | < 60s |
-| **Reflection** | Enabled (verifies report before publishing) |
-| **Base Class** | `utils.agent_base.AgentBase` (legacy) |
+|                 |                                                |
+| --------------- | ---------------------------------------------- |
+| **Skills**      | `analytics-tracking`, `revops`, `copy-editing` |
+| **Temperature** | `0.3`                                          |
+| **SLA**         | < 60s                                          |
+| **Reflection**  | Enabled (verifies report before publishing)    |
+| **Base Class**  | `utils.agent_base.AgentBase` (legacy)          |
 
 **Input State**: All prior agent results (`campaign_plan`, `analytics_result`, `ab_test_result`, `lead_scoring_result`, etc.)
 
@@ -943,15 +961,16 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Creates personalized onboarding plans for new workspaces. Classifies the workspace type (ecommerce/SaaS/agency/creator), builds a 7-day activation drip sequence, generates setup task lists, and predicts churn risks.
 
-| | |
-|---|---|
-| **Skills** | `onboarding-cro`, `churn-prevention`, `lead-magnets`, `email-sequence` |
-| **Temperature** | `0.5` |
-| **SLA** | Event-driven (new signup) |
-| **Pipeline** | **B** (separate from campaigns) |
-| **Base Class** | `utils.agent_base.AgentBase` (legacy) |
+|                 |                                                                        |
+| --------------- | ---------------------------------------------------------------------- |
+| **Skills**      | `onboarding-cro`, `churn-prevention`, `lead-magnets`, `email-sequence` |
+| **Temperature** | `0.5`                                                                  |
+| **SLA**         | Event-driven (new signup)                                              |
+| **Pipeline**    | **B** (separate from campaigns)                                        |
+| **Base Class**  | `utils.agent_base.AgentBase` (legacy)                                  |
 
 **Sub-skills**:
+
 - `WorkspaceClassifierSkill` — ecommerce / SaaS / agency / creator / general
 - `DripSequenceBuilderSkill` — 7-day activation sequence with milestones
 - `MilestoneTrackerSkill` — Tracks first_campaign_sent, analytics_connected, etc.
@@ -979,12 +998,12 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 **Role**: Called synchronously by Email/SMS agents before every send. Uses a fast-path (token injection, no LLM) for contacts with thin profiles, and a full LLM rewrite for contacts with rich behavioral data. This keeps the < 3s SLA even at volume.
 
-| | |
-|---|---|
-| **Skills** | `marketing-psychology`, `customer-research`, `copywriting` |
-| **Temperature** | `0.3` |
-| **SLA** | < 3s/contact |
-| **Pipeline Node** | **No** — called as a sub-function |
+|                   |                                                            |
+| ----------------- | ---------------------------------------------------------- |
+| **Skills**        | `marketing-psychology`, `customer-research`, `copywriting` |
+| **Temperature**   | `0.3`                                                      |
+| **SLA**           | < 3s/contact                                               |
+| **Pipeline Node** | **No** — called as a sub-function                          |
 
 **Sub-skills**: `ContactProfileSkill`, `LanguageDetectSkill`, `SegmentFallbackSkill`, `TokenInjectorSkill`
 
@@ -994,14 +1013,15 @@ Each `CopyVariant` includes: `variant_id`, `subject_line`, `preheader`, `body_ht
 
 MarketOS uses a Docker Compose stack for local development:
 
-| Service | Purpose | Port |
-|---|---|---|
-| **PostgreSQL + pgvector** | Campaigns, copy variants, audit logs, contact scores, episodic + semantic memory | 5433 |
-| **ClickHouse** | Real-time analytics metrics, time-series campaign data | 9000 |
-| **Apache Kafka (Redpanda)** | Inter-agent event bus, 11+ topics | 9092 |
-| **Redis** | Working memory, task contexts, voice daemon tunnel URL | 6379 |
+| Service                     | Purpose                                                                          | Port |
+| --------------------------- | -------------------------------------------------------------------------------- | ---- |
+| **PostgreSQL + pgvector**   | Campaigns, copy variants, audit logs, contact scores, episodic + semantic memory | 5433 |
+| **ClickHouse**              | Real-time analytics metrics, time-series campaign data                           | 9000 |
+| **Apache Kafka (Redpanda)** | Inter-agent event bus, 11+ topics                                                | 9092 |
+| **Redis**                   | Working memory, task contexts, voice daemon tunnel URL                           | 6379 |
 
 All services are **optional**. When unavailable, agents degrade gracefully:
+
 - No PostgreSQL → In-memory dicts for memory
 - No Kafka → In-memory event log
 - No Redis → Dict fallback for working memory
@@ -1085,4 +1105,4 @@ marketos/
 
 ## License
 
-Proprietary — DeepMarkAI © 2024-2026
+Proprietary — MarketOS © 2024-2026

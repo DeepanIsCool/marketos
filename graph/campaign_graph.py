@@ -134,6 +134,39 @@ def seo_parallel_node(state: dict) -> dict:
         "seo_result",
     )
 
+def email_parallel_node(state: dict) -> dict:
+    return _parallel_branch_delta(state, email_agent_node(state), "send_result")
+
+def sms_parallel_node(state: dict) -> dict:
+    return _parallel_branch_delta(state, sms_agent_node(state), "sms_result")
+
+def voice_parallel_node(state: dict) -> dict:
+    return _parallel_branch_delta(state, voice_agent_node(state), "voice_result")
+
+def social_parallel_node(state: dict) -> dict:
+    return _parallel_branch_delta(state, social_media_agent_node(state), "social_result")
+
+def channel_router(state: dict) -> list[str]:
+    from utils.logger import agent_log
+    result = state.get("finance_result", {})
+    if not result.get("approved", True):
+        agent_log("FINANCE", "Pipeline halted — budget gate blocked send.")
+        return ["end"]
+        
+    plan = state.get("campaign_plan") or {}
+    channels = plan.get("channels", ["email"])
+    
+    next_nodes = []
+    if "email" in channels: next_nodes.append("email_agent")
+    if "sms" in channels: next_nodes.append("sms_agent")
+    if "voice" in channels: next_nodes.append("voice_agent")
+    if "social" in channels: next_nodes.append("social_media_agent")
+        
+    if not next_nodes:
+        return ["analytics_agent"]
+        
+    return next_nodes
+
 
 # ── Campaign Graph ─────────────────────────────────────────────────────────────
 
@@ -146,9 +179,9 @@ def build_campaign_graph() -> StateGraph:
     g.add_node("image_agent",         image_agent_node)
     g.add_node("compliance_agent",    compliance_agent_node)
     g.add_node("finance_agent",       finance_agent_node)
-    g.add_node("email_agent",         email_agent_node)
-    g.add_node("sms_agent",           sms_agent_node)
-    g.add_node("social_media_agent",  social_media_agent_node)
+    g.add_node("email_agent",         email_parallel_node)
+    g.add_node("sms_agent",           sms_parallel_node)
+    g.add_node("social_media_agent",  social_parallel_node)
     g.add_node("analytics_agent",     analytics_agent_node)
     g.add_node("monitor_agent",       monitor_agent_node)
     g.add_node("ab_test_agent",       ab_test_agent_node)
@@ -157,7 +190,7 @@ def build_campaign_graph() -> StateGraph:
     g.add_node("seo_agent",           seo_parallel_node)
     g.add_node("reporting_agent",     reporting_agent_node)
     g.add_node("onboarding_agent",    onboarding_agent_node)
-    g.add_node("voice_agent",         voice_agent_node)
+    g.add_node("voice_agent",         voice_parallel_node)
 
     # Entry: dual pipeline
     g.add_conditional_edges(START, pipeline_router,
@@ -174,12 +207,19 @@ def build_campaign_graph() -> StateGraph:
     g.add_conditional_edges("compliance_agent", compliance_router,
         {"email_agent": "finance_agent", "end": END})
 
-    g.add_conditional_edges("finance_agent", finance_router,
-        {"email_agent": "email_agent", "end": END})
+    g.add_conditional_edges("finance_agent", channel_router,
+        {
+            "email_agent": "email_agent",
+            "sms_agent": "sms_agent",
+            "voice_agent": "voice_agent",
+            "social_media_agent": "social_media_agent",
+            "analytics_agent": "analytics_agent",
+            "end": END
+        })
 
-    g.add_edge("email_agent",        "sms_agent")
-    g.add_edge("sms_agent",          "voice_agent")
-    g.add_edge("voice_agent",        "social_media_agent")
+    g.add_edge("email_agent",        "analytics_agent")
+    g.add_edge("sms_agent",          "analytics_agent")
+    g.add_edge("voice_agent",        "analytics_agent")
     g.add_edge("social_media_agent", "analytics_agent")
     g.add_edge("analytics_agent",    "monitor_agent")
     g.add_edge("monitor_agent",      "ab_test_agent")

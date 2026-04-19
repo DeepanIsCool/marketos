@@ -24,6 +24,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -55,6 +56,14 @@ except ImportError:
 
 PG_DSN    = os.getenv("DATABASE_URL", "postgresql://marketos:marketos_dev@localhost:5433/marketos")
 WORKSPACE = os.getenv("DEFAULT_WORKSPACE_ID", "default")
+
+
+def _report_output_path(campaign_id: str) -> str:
+    output_dir = os.getenv("MARKETOS_REPORT_DIR")
+    if not output_dir:
+        output_dir = os.path.join(tempfile.gettempdir(), "marketos_reports")
+    os.makedirs(output_dir, exist_ok=True)
+    return os.path.join(output_dir, f"{campaign_id}_campaign_report.pdf")
 
 
 # ── Sub-skill: Metrics Aggregator ─────────────────────────────────────────────
@@ -382,7 +391,7 @@ class ReportingAgent(AgentBase):
         }
 
         # ── Generate PDF ──────────────────────────────────────────────────
-        pdf_path = "demo_campaign_report.pdf"
+        pdf_path = _report_output_path(campaign_id)
         PDFReportSkill.generate(pdf_data, pdf_path)
         agent_log("REPORTING", f"✓ Campaign Report PDF generated: {pdf_path}")
 

@@ -39,6 +39,7 @@ class CampaignPlan(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+
 # ── Copy Agent Output ────────────────────────────────────────────────────────
 
 class CopyVariant(BaseModel):

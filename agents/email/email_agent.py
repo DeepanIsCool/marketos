@@ -81,6 +81,12 @@ REQUIRED JSON SCHEMA:
   ]
 }"""
 
+DEFAULT_DRIP_SEQUENCE = [
+    "Day 3 — Re-engagement: resend to non-openers with a refreshed subject line.",
+    "Day 7 — Social proof: send testimonials to openers who did not click.",
+    "Day 14 — Final urgency: send offer-expiry email to remaining non-converters.",
+]
+
 
 # Delivery function replaced by utils.sendgrid_mailer.send_email
 
@@ -227,7 +233,7 @@ def email_agent_node(state: dict) -> dict:
         message_id=message_id,
         optimal_send_time=data.get("optimal_send_time", "Tuesday 10:00 AM IST"),
         next_drip_trigger=data.get("next_drip_trigger"),
-        drip_sequence_preview=data.get("drip_sequence_preview", []),
+        drip_sequence_preview=data.get("drip_sequence_preview") or DEFAULT_DRIP_SEQUENCE,
     )
 
     # ── Terminal: strategy output ────────────────────────────────────────
@@ -247,7 +253,7 @@ def email_agent_node(state: dict) -> dict:
 
     # ── Real email send ──────────────────────────────────────────────────
     real_result = {"sent": False, "error": "no recipient configured"}
-    recipient   = state.get("recipient_email") or "deepanxshinjini@gmail.com"  # Hard-routed test override
+    recipient   = state.get("recipient_email")
     workspace_id = state.get("workspace_id") or WORKSPACE
     contact_id = state.get("contact_id") or recipient or "default"
     personalized = {
@@ -298,18 +304,7 @@ def email_agent_node(state: dict) -> dict:
         else:
             kv("Real Email", f"❌ {real_result.get('error', 'unknown error')}")
 
-        # Write output to disk for local preview inspection
-        try:
-            preview_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "email_preview.html")
-            with open(preview_path, "w", encoding="utf-8") as f:
-                # Replace CID with inline base64 for browser preview capabilities
-                html_out = personalized.get("body_html", selected.body_html)
-                if copy_out.hero_image_base64:
-                    html_out = html_out.replace('src="cid:hero_image"', f'src="data:image/jpeg;base64,{copy_out.hero_image_base64}"')
-                f.write(html_out)
-            agent_log("EMAIL", f"Saved rendering to {preview_path} for layout verification.")
-        except Exception as e:
-            agent_log("EMAIL", f"Failed to save local preview html: {e}")
+        agent_log("EMAIL", "Skipped writing local email_preview.html to prevent LiveServer refresh.")
 
     divider()
     success_banner(send_result.campaign_id, plan.campaign_name)
@@ -319,6 +314,7 @@ def email_agent_node(state: dict) -> dict:
     result_dict["real_email_sent"]   = real_result.get("sent", False)
     result_dict["real_email_status"] = "sent" if real_result.get("sent") else real_result.get("error", "not_attempted")
     result_dict["recipient_count"] = max(int(data.get("recipient_count", 1) or 1), 1)
+    result_dict["simulated_recipients"] = result_dict["recipient_count"]
     result_dict["personalization_signals"] = personalized.get("personalization_signals", [])
 
     if real_result.get("sent"):

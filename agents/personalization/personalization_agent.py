@@ -108,17 +108,43 @@ class TokenInjectorSkill:
     """
 
     @staticmethod
-    def inject(text: str, contact: dict) -> str:
-        tokens = {
-            "{{first_name}}":  contact.get("first_name") or "there",
-            "{{last_name}}":   contact.get("last_name") or "",
-            "{{city}}":        contact.get("city") or "your city",
-            "{{country}}":     contact.get("country") or "",
-            "{{segment}}":     contact.get("segment") or "valued customer",
+    def _token_values(contact: dict) -> dict:
+        return {
+            "first_name": contact.get("first_name") or "there",
+            "last_name": contact.get("last_name") or "",
+            "city": contact.get("city") or "your city",
+            "country": contact.get("country") or "",
+            "segment": contact.get("segment") or "valued customer",
         }
-        for token, value in tokens.items():
-            text = text.replace(token, value)
-        return text
+
+    @staticmethod
+    def inject(text: str, contact: dict) -> str:
+        if not isinstance(text, str):
+            return text
+
+        token_values = TokenInjectorSkill._token_values(contact)
+
+        def _replace(match: re.Match[str]) -> str:
+            token_name = match.group(1).strip().lower()
+            return str(token_values.get(token_name, match.group(0)))
+
+        return re.sub(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", _replace, text)
+
+    @staticmethod
+    def strip_unresolved(text: str) -> str:
+        if not isinstance(text, str):
+            return text
+
+        text = re.sub(r"\{\{\s*[^}]+\s*\}\}", "", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r" *\n *", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+        return text.strip()
+
+    @staticmethod
+    def resolve(text: str, contact: dict) -> str:
+        return TokenInjectorSkill.strip_unresolved(TokenInjectorSkill.inject(text, contact))
 
     @staticmethod
     def profile_richness(contact: dict) -> float:
@@ -248,10 +274,11 @@ def personalize_for_contact(
         agent_log("PERSONALIZATION", "Fast-path: token injection (thin profile)")
         result = {
             **variant,
-            "subject_line": TokenInjectorSkill.inject(variant.get("subject_line", ""), contact_data),
-            "preview_text":  TokenInjectorSkill.inject(variant.get("preview_text", ""), contact_data),
-            "body_html":     TokenInjectorSkill.inject(variant.get("body_html", ""), contact_data),
-            "body_text":     TokenInjectorSkill.inject(variant.get("body_text", ""), contact_data),
+            "subject_line": TokenInjectorSkill.resolve(variant.get("subject_line", ""), contact_data),
+            "preview_text":  TokenInjectorSkill.resolve(variant.get("preview_text", ""), contact_data),
+            "body_html":     TokenInjectorSkill.resolve(variant.get("body_html", ""), contact_data),
+            "body_text":     TokenInjectorSkill.resolve(variant.get("body_text", ""), contact_data),
+            "cta_text":      TokenInjectorSkill.resolve(variant.get("cta_text", ""), contact_data),
             "personalization_signals": ["token_injection_only"],
             "fallback_used": True,
         }
@@ -295,8 +322,11 @@ HTML BODY (personalise text within tags only):
         data     = extract_json(response.content.strip())
 
         # Post-process: token injection as safety net
-        data["body_html"] = TokenInjectorSkill.inject(data.get("body_html", variant["body_html"]), contact_data)
-        data["subject_line"] = TokenInjectorSkill.inject(data.get("subject_line", variant["subject_line"]), contact_data)
+        data["subject_line"] = TokenInjectorSkill.resolve(data.get("subject_line", variant["subject_line"]), contact_data)
+        data["preview_text"] = TokenInjectorSkill.resolve(data.get("preview_text", variant["preview_text"]), contact_data)
+        data["body_html"] = TokenInjectorSkill.resolve(data.get("body_html", variant["body_html"]), contact_data)
+        data["body_text"] = TokenInjectorSkill.resolve(data.get("body_text", variant["body_text"]), contact_data)
+        data["cta_text"] = TokenInjectorSkill.resolve(data.get("cta_text", variant["cta_text"]), contact_data)
 
         elapsed = (time.time() - t0) * 1000
         agent_log("PERSONALIZATION", f"LLM personalisation done in {elapsed:.0f}ms")
@@ -319,8 +349,11 @@ HTML BODY (personalise text within tags only):
         agent_log("PERSONALIZATION", f"LLM failed ({e}) — returning token-injected fallback")
         return {
             **variant,
-            "subject_line": TokenInjectorSkill.inject(variant.get("subject_line", ""), contact_data),
-            "body_html":    TokenInjectorSkill.inject(variant.get("body_html", ""), contact_data),
+            "subject_line": TokenInjectorSkill.resolve(variant.get("subject_line", ""), contact_data),
+            "preview_text": TokenInjectorSkill.resolve(variant.get("preview_text", ""), contact_data),
+            "body_html":    TokenInjectorSkill.resolve(variant.get("body_html", ""), contact_data),
+            "body_text":    TokenInjectorSkill.resolve(variant.get("body_text", ""), contact_data),
+            "cta_text":     TokenInjectorSkill.resolve(variant.get("cta_text", ""), contact_data),
             "personalization_signals": ["fallback_token_injection"],
             "fallback_used": True,
         }

@@ -80,7 +80,10 @@ Respond ONLY with valid JSON — no prose, no markdown fences.
 
 
 def _get_tunnel_url() -> str | None:
-    """Read the active ngrok tunnel URL from Redis (set by voice_daemon on startup)."""
+    """Read the active voice daemon URL from env or Redis."""
+    env_url = os.getenv("VOICE_DAEMON_WSS_URL") or os.getenv("VOICE_DAEMON_WS_URL")
+    if env_url:
+        return env_url
     if not REDIS_OK or not _redis:
         return None
     try:
